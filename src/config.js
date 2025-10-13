@@ -49,24 +49,36 @@ export const config = {
   // Filtering
   filters: {
     ignorePatterns: (process.env.IGNORE_PATTERNS || 'node_modules/**,*.log,*.tmp,.git/**').split(','),
-    includePatterns: (process.env.INCLUDE_PATTERNS || '**/*.json').split(','),
+    includePatterns: (process.env.INCLUDE_PATTERNS || '**/*.json,**/*.yaml,**/*.yml').split(','),
   },
 
   // Logging
   logging: {
     level: process.env.LOG_LEVEL || 'info',
   },
+
+  // Webhook Server
+  webhook: {
+    enabled: process.env.WEBHOOK_ENABLED === 'true',
+    port: parseInt(process.env.WEBHOOK_PORT) || 3000,
+    secret: process.env.WEBHOOK_SECRET || null,
+  },
 };
 
-// Validate configuration
+/**
+ * Validate configuration
+ * @throws {Error} If configuration is invalid
+ * @returns {boolean} True if configuration is valid
+ */
 export function validateConfig() {
   const errors = [];
 
-  if (!config.n8n.apiUrl) {
+  // Check required fields
+  if (!process.env.N8N_API_URL && !config.n8n.apiUrl) {
     errors.push('N8N_API_URL is required');
   }
 
-  if (!config.n8n.apiKey) {
+  if (!process.env.N8N_API_KEY && !config.n8n.apiKey) {
     errors.push('N8N_API_KEY is required');
   }
 

@@ -1,8 +1,9 @@
 import { readFile, writeFile, readdir, stat, mkdir } from 'fs/promises';
-import { join, dirname, relative, sep } from 'path';
+import { join, dirname, relative, sep, extname } from 'path';
 import { existsSync } from 'fs';
 import { createHash } from 'crypto';
 import { minimatch } from 'minimatch';
+import yaml from 'js-yaml';
 import { config } from './config.js';
 
 /**
@@ -23,7 +24,7 @@ export class FileManager {
   }
 
   /**
-   * Recursively scan directory for JSON files
+   * Recursively scan directory for JSON and YAML files
    */
   async _scanDirectory(dir, files) {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -33,8 +34,11 @@ export class FileManager {
 
       if (entry.isDirectory()) {
         await this._scanDirectory(fullPath, files);
-      } else if (entry.isFile() && entry.name.endsWith('.json')) {
-        files.push(fullPath);
+      } else if (entry.isFile()) {
+        const ext = extname(entry.name).toLowerCase();
+        if (ext === '.json' || ext === '.yaml' || ext === '.yml') {
+          files.push(fullPath);
+        }
       }
     }
   }
@@ -63,11 +67,18 @@ export class FileManager {
   }
 
   /**
-   * Read workflow from file
+   * Read workflow from file (supports JSON and YAML)
    */
   async readWorkflow(filePath) {
     const content = await readFile(filePath, 'utf-8');
-    const workflow = JSON.parse(content);
+    const ext = extname(filePath).toLowerCase();
+
+    let workflow;
+    if (ext === '.yaml' || ext === '.yml') {
+      workflow = yaml.load(content);
+    } else {
+      workflow = JSON.parse(content);
+    }
 
     return {
       ...workflow,
@@ -75,18 +86,32 @@ export class FileManager {
         filePath: relative(this.baseDir, filePath),
         hash: this._calculateHash(content),
         lastModified: (await stat(filePath)).mtime,
+        format: ext === '.yaml' || ext === '.yml' ? 'yaml' : 'json',
       },
     };
   }
 
   /**
-   * Write workflow to file
+   * Write workflow to file (supports JSON and YAML)
    */
-  async writeWorkflow(filePath, workflow) {
+  async writeWorkflow(filePath, workflow, format = null) {
     // Remove metadata before writing
     const { _metadata, ...cleanWorkflow } = workflow;
 
-    const content = JSON.stringify(cleanWorkflow, null, 2);
+    // Determine format from file extension if not specified
+    const ext = extname(filePath).toLowerCase();
+    const outputFormat = format || (ext === '.yaml' || ext === '.yml' ? 'yaml' : 'json');
+
+    let content;
+    if (outputFormat === 'yaml') {
+      content = yaml.dump(cleanWorkflow, {
+        indent: 2,
+        lineWidth: 120,
+        noRefs: true,
+      });
+    } else {
+      content = JSON.stringify(cleanWorkflow, null, 2);
+    }
 
     // Ensure directory exists
     const dir = dirname(filePath);

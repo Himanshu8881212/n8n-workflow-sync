@@ -1,263 +1,279 @@
-import { N8nClient } from './n8n-client.js';
-import { FileManager } from './file-manager.js';
-import { SyncState } from './sync-state.js';
-import { config } from './config.js';
-import chalk from 'chalk';
+#!/usr/bin/env node
 
 /**
- * Sync Engine - Handles bidirectional synchronization
+ * Sync Engine
+ * 
+ * Handles bidirectional sync between n8n and local files.
+ * 
+ * @module sync-engine
+ */
+
+import { readdir } from 'fs/promises';
+import { join, basename, extname } from 'path';
+import { winstonLogger as logger } from './logger-enhanced.js';
+import { N8nClient } from './n8n-client.js';
+import { FileManager } from './file-manager.js';
+import { config } from './config.js';
+
+/**
+ * Sync Engine
  */
 export class SyncEngine {
-  constructor(workflowsDir) {
-    this.n8nClient = new N8nClient();
-    this.fileManager = new FileManager(workflowsDir);
-    this.syncState = new SyncState();
-    this.isRunning = false;
-  }
+  constructor(options = {}) {
+    this.client = new N8nClient(options.apiUrl, options.apiKey);
+    this.fileManager = new FileManager();
+    this.workflowsDir = options.workflowsDir || config.paths.workflowsDir;
+    this.dryRun = options.dryRun || config.sync.dryRun;
 
-  /**
-   * Initialize sync engine
-   */
-  async initialize() {
-    console.log(chalk.blue('🔧 Initializing sync engine...'));
-
-    // Load sync state
-    await this.syncState.load();
-
-    // Check n8n health
-    const health = await this.n8nClient.healthCheck();
-    if (!health.healthy) {
-      throw new Error(`n8n is not healthy: ${health.error}`);
-    }
-
-    console.log(chalk.green('✓ Sync engine initialized'));
+    logger.info('SyncEngine initialized', {
+      context: 'SyncEngine',
+      workflowsDir: this.workflowsDir,
+      dryRun: this.dryRun,
+    });
   }
 
   /**
    * Pull workflows from n8n to local files
    */
   async pullFromN8n() {
-    console.log(chalk.blue('⬇️  Pulling workflows from n8n...'));
+    logger.info('Starting pull from n8n', { context: 'SyncEngine' });
 
-    const remoteWorkflows = await this.n8nClient.listWorkflows();
-    const stats = { updated: 0, created: 0, skipped: 0, errors: 0 };
+    try {
+      // Get all workflows from n8n
+      const workflows = await this.client.listWorkflows();
 
-    for (const remoteWorkflow of remoteWorkflows) {
-      try {
-        // Get full workflow details
-        const fullWorkflow = await this.n8nClient.getWorkflow(remoteWorkflow.id);
+      logger.info(`Found ${workflows.length} workflows in n8n`, {
+        context: 'SyncEngine',
+        count: workflows.length,
+      });
 
-        // Find the file path from sync state (by workflow ID)
-        const existingState = this.syncState.getWorkflowById(fullWorkflow.id);
+      let pulled = 0;
+      let skipped = 0;
+      let errors = 0;
 
-        let filePath;
-        let relativePath;
+      for (const workflow of workflows) {
+        try {
+          // Get full workflow details
+          const fullWorkflow = await this.client.getWorkflow(workflow.id);
 
-        if (existingState && existingState.filePath) {
-          // Use the path from sync state
-          relativePath = existingState.filePath;
-          filePath = this.fileManager.getAbsolutePath(relativePath);
-        } else {
-          // New workflow, derive path from name (fallback)
-          filePath = this.fileManager.getWorkflowPath(fullWorkflow);
-          relativePath = this.fileManager.getRelativePath(filePath);
-        }
+          // Determine folder based on tags
+          let folderPath = this.workflowsDir;
+          if (fullWorkflow.tags && fullWorkflow.tags.length > 0) {
+            // Use first tag as folder name
+            const folderName = this._sanitizeFilename(fullWorkflow.tags[0].name || fullWorkflow.tags[0]);
+            folderPath = join(this.workflowsDir, folderName);
 
-        // Check if local file exists and compare
-        const localState = this.syncState.getWorkflowByPath(relativePath);
-        const shouldUpdate = await this._shouldPullWorkflow(fullWorkflow, filePath, localState);
+            // Create folder if it doesn't exist
+            if (!this.dryRun) {
+              await mkdir(folderPath, { recursive: true });
+            }
+          }
 
-        if (shouldUpdate) {
-          // Write to file
-          const hash = await this.fileManager.writeWorkflow(filePath, fullWorkflow);
+          // Save to file
+          const filename = `${this._sanitizeFilename(fullWorkflow.name)}.json`;
+          const filepath = join(folderPath, filename);
 
-          // Update state with file path as key
-          await this.syncState.updateWorkflowByPath(relativePath, {
-            id: fullWorkflow.id,
-            name: fullWorkflow.name,
-            hash,
-            remoteUpdatedAt: fullWorkflow.updatedAt,
+          if (this.dryRun) {
+            logger.info(`[DRY RUN] Would save: ${filename}`, {
+              context: 'SyncEngine',
+              filename,
+            });
+            pulled++;
+          } else {
+            await this.fileManager.writeWorkflow(filepath, fullWorkflow);
+            logger.info(`Pulled workflow: ${fullWorkflow.name}`, {
+              context: 'SyncEngine',
+              id: fullWorkflow.id,
+              name: fullWorkflow.name,
+              file: filename,
+            });
+            pulled++;
+          }
+        } catch (error) {
+          logger.error(`Failed to pull workflow: ${workflow.name}`, {
+            context: 'SyncEngine',
+            id: workflow.id,
+            error: error.message,
           });
-
-          const action = localState ? 'updated' : 'created';
-          stats[action]++;
-          console.log(chalk.green(`  ✓ ${action}: ${fullWorkflow.name}`));
-        } else {
-          stats.skipped++;
+          errors++;
         }
-      } catch (error) {
-        stats.errors++;
-        console.error(chalk.red(`  ✗ Error syncing ${remoteWorkflow.name}: ${error.message}`));
       }
-    }
 
-    await this.syncState.updateLastSync();
-    this._printStats('Pull', stats);
-    return stats;
+      logger.info('Pull completed', {
+        context: 'SyncEngine',
+        pulled,
+        skipped,
+        errors,
+        total: workflows.length,
+      });
+
+      return { pulled, skipped, errors, total: workflows.length };
+    } catch (error) {
+      logger.error('Pull failed', {
+        context: 'SyncEngine',
+        error: error.message,
+      });
+      throw error;
+    }
   }
 
   /**
-   * Push workflows from local files to n8n
+   * Push local workflows to n8n
    */
   async pushToN8n() {
-    console.log(chalk.blue('⬆️  Pushing workflows to n8n...'));
+    logger.info('Starting push to n8n', { context: 'SyncEngine' });
 
-    const localFiles = await this.fileManager.getAllWorkflowFiles();
-    const stats = { updated: 0, created: 0, skipped: 0, errors: 0 };
+    try {
+      // Get all local workflow files recursively
+      const workflowFiles = await this._getAllWorkflowFiles(this.workflowsDir);
 
-    // Get all remote workflows once for name-based matching
-    const remoteWorkflows = await this.n8nClient.listWorkflows();
-    const remoteByName = new Map(remoteWorkflows.map(w => [w.name, w]));
+      logger.info(`Found ${workflowFiles.length} local workflow files`, {
+        context: 'SyncEngine',
+        count: workflowFiles.length,
+      });
 
-    for (const filePath of localFiles) {
-      try {
-        const workflow = await this.fileManager.readWorkflow(filePath);
-        const relativePath = this.fileManager.getRelativePath(filePath);
+      let pushed = 0;
+      let updated = 0;
+      let skipped = 0;
+      let errors = 0;
 
-        // Find workflow ID by checking:
-        // 1. Sync state by file path
-        // 2. Remote workflow by name
-        const stateByPath = this.syncState.getWorkflowByPath(relativePath);
-        const remoteByNameMatch = remoteByName.get(workflow.name);
+      for (const filepath of workflowFiles) {
+        try {
+          const workflow = await this.fileManager.readWorkflow(filepath);
 
-        // Determine the workflow ID to use
-        let workflowId = null;
-        if (stateByPath && stateByPath.id) {
-          // Verify the ID still exists in n8n
-          try {
-            await this.n8nClient.getWorkflow(stateByPath.id);
-            workflowId = stateByPath.id;
-          } catch (error) {
-            // ID doesn't exist, try name match
-            if (remoteByNameMatch) {
-              workflowId = remoteByNameMatch.id;
+          if (!workflow || !workflow.name) {
+            logger.warn(`Invalid workflow file: ${filepath}`, {
+              context: 'SyncEngine',
+              file: filepath,
+            });
+            skipped++;
+            continue;
+          }
+
+          if (this.dryRun) {
+            logger.info(`[DRY RUN] Would push: ${workflow.name}`, {
+              context: 'SyncEngine',
+              name: workflow.name,
+              file: filepath,
+            });
+            pushed++;
+          } else {
+            // Check if workflow exists in n8n
+            if (workflow.id) {
+              const exists = await this.client.workflowExists(workflow.id);
+              if (exists) {
+                // Update existing workflow
+                await this.client.updateWorkflow(workflow.id, workflow);
+                logger.info(`Updated workflow: ${workflow.name}`, {
+                  context: 'SyncEngine',
+                  id: workflow.id,
+                  name: workflow.name,
+                  file: filepath,
+                });
+                updated++;
+              } else {
+                // ID exists but workflow doesn't - create new
+                delete workflow.id; // Remove invalid ID
+                const created = await this.client.createWorkflow(workflow);
+                logger.info(`Created workflow: ${created.name}`, {
+                  context: 'SyncEngine',
+                  id: created.id,
+                  name: created.name,
+                  file: filepath,
+                });
+                pushed++;
+              }
+            } else {
+              // No ID - create new workflow
+              const created = await this.client.createWorkflow(workflow);
+              logger.info(`Created workflow: ${created.name}`, {
+                context: 'SyncEngine',
+                id: created.id,
+                name: created.name,
+                file: filepath,
+              });
+              pushed++;
             }
           }
-        } else if (remoteByNameMatch) {
-          // No state, but found by name
-          workflowId = remoteByNameMatch.id;
-        }
-
-        // Check if workflow needs to be pushed
-        const shouldPush = await this._shouldPushWorkflow(workflow, stateByPath);
-
-        if (shouldPush) {
-          let result;
-          if (workflowId) {
-            // Update existing workflow
-            result = await this.n8nClient.updateWorkflow(workflowId, workflow);
-            stats.updated++;
-            console.log(chalk.green(`  ✓ Updated: ${workflow.name}`));
-          } else {
-            // Create new workflow
-            result = await this.n8nClient.createWorkflow(workflow);
-            stats.created++;
-            console.log(chalk.green(`  ✓ Created: ${workflow.name}`));
-          }
-
-          // Update state with file path as key
-          await this.syncState.updateWorkflowByPath(relativePath, {
-            id: result.id,
-            name: result.name,
-            hash: workflow._metadata.hash,
-            remoteUpdatedAt: result.updatedAt,
+        } catch (error) {
+          logger.error(`Failed to push workflow: ${filepath}`, {
+            context: 'SyncEngine',
+            file: filepath,
+            error: error.message,
           });
-        } else {
-          stats.skipped++;
+          errors++;
         }
-      } catch (error) {
-        stats.errors++;
-        console.error(chalk.red(`  ✗ Error pushing ${filePath}: ${error.message}`));
+      }
+
+      logger.info('Push completed', {
+        context: 'SyncEngine',
+        pushed,
+        updated,
+        skipped,
+        errors,
+        total: workflowFiles.length,
+      });
+
+      return { pushed, updated, skipped, errors, total: workflowFiles.length };
+    } catch (error) {
+      logger.error('Push failed', {
+        context: 'SyncEngine',
+        error: error.message,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Recursively get all workflow files
+   */
+  async _getAllWorkflowFiles(dir) {
+    const files = [];
+    const entries = await readdir(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        // Recursively get files from subdirectories
+        const subFiles = await this._getAllWorkflowFiles(fullPath);
+        files.push(...subFiles);
+      } else if (entry.isFile() && (entry.name.endsWith('.json') || entry.name.endsWith('.yaml') || entry.name.endsWith('.yml'))) {
+        files.push(fullPath);
       }
     }
 
-    await this.syncState.updateLastSync();
-    this._printStats('Push', stats);
-    return stats;
+    return files;
   }
 
   /**
    * Full bidirectional sync
    */
-  async sync() {
-    console.log(chalk.bold.blue('\n🔄 Starting full sync...\n'));
+  async fullSync() {
+    logger.info('Starting full sync', { context: 'SyncEngine' });
 
-    // Pull first to get latest from n8n
-    const pullStats = await this.pullFromN8n();
+    const pullResult = await this.pullFromN8n();
+    const pushResult = await this.pushToN8n();
 
-    // Then push local changes
-    const pushStats = await this.pushToN8n();
+    logger.info('Full sync completed', {
+      context: 'SyncEngine',
+      pull: pullResult,
+      push: pushResult,
+    });
 
-    console.log(chalk.bold.green('\n✓ Sync completed\n'));
-
-    return { pull: pullStats, push: pushStats };
+    return { pull: pullResult, push: pushResult };
   }
 
   /**
-   * Determine if workflow should be pulled from n8n
+   * Sanitize filename
    */
-  async _shouldPullWorkflow(remoteWorkflow, filePath, localState) {
-    // If no local state, always pull
-    if (!localState) return true;
-
-    // Check conflict resolution strategy
-    switch (config.conflict.strategy) {
-      case 'remote_wins':
-        return true;
-
-      case 'local_wins':
-        return false;
-
-      case 'newest_wins':
-        const remoteDate = new Date(remoteWorkflow.updatedAt);
-        const localDate = new Date(localState.remoteUpdatedAt || 0);
-        return remoteDate > localDate;
-
-      default:
-        return true;
-    }
-  }
-
-  /**
-   * Determine if workflow should be pushed to n8n
-   */
-  async _shouldPushWorkflow(workflow, localState) {
-    // If no local state, always push
-    if (!localState) return true;
-
-    // Check if file has changed
-    const hasChanged = localState.hash !== workflow._metadata.hash;
-    if (!hasChanged) return false;
-
-    // Check conflict resolution strategy
-    switch (config.conflict.strategy) {
-      case 'local_wins':
-        return true;
-
-      case 'remote_wins':
-        return false;
-
-      case 'newest_wins':
-        const localDate = workflow._metadata.lastModified;
-        const remoteDate = new Date(localState.remoteUpdatedAt || 0);
-        return localDate > remoteDate;
-
-      default:
-        return true;
-    }
-  }
-
-  /**
-   * Print sync statistics
-   */
-  _printStats(operation, stats) {
-    console.log(chalk.bold(`\n${operation} Summary:`));
-    console.log(chalk.green(`  ✓ Created: ${stats.created}`));
-    console.log(chalk.blue(`  ↻ Updated: ${stats.updated}`));
-    console.log(chalk.gray(`  ⊘ Skipped: ${stats.skipped}`));
-    if (stats.errors > 0) {
-      console.log(chalk.red(`  ✗ Errors: ${stats.errors}`));
-    }
+  _sanitizeFilename(name) {
+    return name
+      .replace(/[^a-z0-9_-]/gi, '_')
+      .replace(/_+/g, '_')
+      .toLowerCase();
   }
 }
+
+export default SyncEngine;
 

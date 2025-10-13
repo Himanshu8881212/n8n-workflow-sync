@@ -1,172 +1,146 @@
 #!/usr/bin/env node
 
+/**
+ * n8n Workflow Sync Service
+ * 
+ * Main entry point for the bidirectional sync service.
+ * Starts the file watcher and webhook server.
+ * 
+ * @module index
+ */
+
+import { winstonLogger as logger } from './logger-enhanced.js';
+import { config, validateConfig } from './config.js';
 import { SyncEngine } from './sync-engine.js';
-import { FileWatcher } from './watcher.js';
-import { validateConfig, config } from './config.js';
-import chalk from 'chalk';
-import { join } from 'path';
+import { Watcher } from './watcher-enhanced.js';
+import { WebhookServer } from './webhook-server.js';
 
 /**
- * Main entry point for sync service
+ * Main application
  */
 class SyncService {
   constructor() {
-    this.workflowsDir = join(process.cwd(), config.paths.workflowsDir);
-    this.syncEngine = new SyncEngine(this.workflowsDir);
+    this.syncEngine = null;
     this.watcher = null;
-    this.intervalId = null;
+    this.webhookServer = null;
+    this.isRunning = false;
   }
 
   /**
-   * Start the sync service
+   * Start the service
    */
   async start() {
-    console.log(chalk.bold.blue('\n🚀 n8n Workflow Sync Service\n'));
-    
     try {
+      logger.info('🚀 Starting n8n Workflow Sync Service v2.0', {
+        context: 'SyncService',
+      });
+
       // Validate configuration
       validateConfig();
-      
+
       // Initialize sync engine
-      await this.syncEngine.initialize();
-      
-      // Perform initial sync
-      console.log(chalk.blue('📊 Performing initial sync...\n'));
-      await this.syncEngine.sync();
-      
+      this.syncEngine = new SyncEngine({
+        workflowsDir: config.paths.workflowsDir,
+        dryRun: config.sync.dryRun,
+      });
+
       // Start file watcher if enabled
       if (config.sync.watchEnabled) {
-        this.watcher = new FileWatcher(this.workflowsDir);
+        logger.info('Starting file watcher', { context: 'SyncService' });
+        this.watcher = new Watcher(this.syncEngine, {
+          workflowsDir: config.paths.workflowsDir,
+          debounceMs: config.sync.debounceMs,
+          autoPush: config.sync.autoPush,
+          autoPull: config.sync.autoPull,
+        });
         await this.watcher.start();
+      } else {
+        logger.info('File watcher disabled', { context: 'SyncService' });
       }
-      
-      // Start periodic sync if enabled
-      if (config.sync.autoPull && config.sync.intervalMs > 0) {
-        this._startPeriodicSync();
+
+      // Start webhook server if enabled
+      if (config.webhook.enabled) {
+        logger.info('Starting webhook server', { context: 'SyncService' });
+        this.webhookServer = new WebhookServer(this.syncEngine, {
+          port: config.webhook.port,
+          secret: config.webhook.secret,
+          enabled: config.webhook.enabled,
+        });
+        await this.webhookServer.start();
+      } else {
+        logger.info('Webhook server disabled', { context: 'SyncService' });
       }
-      
-      console.log(chalk.bold.green('\n✓ Sync service is running\n'));
-      console.log(chalk.gray('Press Ctrl+C to stop\n'));
-      
+
+      this.isRunning = true;
+
+      logger.info('✅ n8n Workflow Sync Service started successfully', {
+        context: 'SyncService',
+        watchEnabled: config.sync.watchEnabled,
+        webhookEnabled: config.webhook.enabled,
+        workflowsDir: config.paths.workflowsDir,
+      });
+
+      // Initial sync if configured
+      if (config.sync.autoPull) {
+        logger.info('Running initial pull sync', { context: 'SyncService' });
+        await this.syncEngine.pullFromN8n();
+      }
+
+      // Keep process alive
+      process.on('SIGINT', () => this.stop());
+      process.on('SIGTERM', () => this.stop());
+
     } catch (error) {
-      console.error(chalk.red('\n✗ Failed to start sync service:'), error.message);
+      logger.error('Failed to start service', {
+        context: 'SyncService',
+        error: error.message,
+        stack: error.stack,
+      });
       process.exit(1);
     }
   }
 
   /**
-   * Start periodic sync from n8n
-   */
-  _startPeriodicSync() {
-    console.log(chalk.blue(`🔄 Periodic sync enabled (every ${config.sync.intervalMs / 1000}s)\n`));
-    
-    this.intervalId = setInterval(async () => {
-      try {
-        console.log(chalk.gray(`\n⏰ Periodic sync triggered at ${new Date().toLocaleTimeString()}`));
-        await this.syncEngine.pullFromN8n();
-      } catch (error) {
-        console.error(chalk.red('Periodic sync failed:'), error.message);
-      }
-    }, config.sync.intervalMs);
-  }
-
-  /**
-   * Stop the sync service
+   * Stop the service
    */
   async stop() {
-    console.log(chalk.yellow('\n⏸️  Stopping sync service...'));
-    
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
+    if (!this.isRunning) {
+      return;
     }
-    
-    if (this.watcher) {
-      await this.watcher.stop();
+
+    logger.info('Stopping n8n Workflow Sync Service', {
+      context: 'SyncService',
+    });
+
+    try {
+      // Stop watcher
+      if (this.watcher) {
+        await this.watcher.stop();
+      }
+
+      // Stop webhook server
+      if (this.webhookServer) {
+        await this.webhookServer.stop();
+      }
+
+      this.isRunning = false;
+
+      logger.info('✅ Service stopped gracefully', {
+        context: 'SyncService',
+      });
+
+      process.exit(0);
+    } catch (error) {
+      logger.error('Error stopping service', {
+        context: 'SyncService',
+        error: error.message,
+      });
+      process.exit(1);
     }
-    
-    console.log(chalk.green('✓ Sync service stopped\n'));
   }
 }
 
-/**
- * CLI Commands
- */
-const commands = {
-  async start() {
-    const service = new SyncService();
-    await service.start();
-    
-    // Handle graceful shutdown
-    process.on('SIGINT', async () => {
-      await service.stop();
-      process.exit(0);
-    });
-  },
-
-  async pull() {
-    console.log(chalk.bold.blue('\n⬇️  Pull from n8n\n'));
-    const workflowsDir = join(process.cwd(), config.paths.workflowsDir);
-    const engine = new SyncEngine(workflowsDir);
-    await engine.initialize();
-    await engine.pullFromN8n();
-    console.log(chalk.green('\n✓ Pull completed\n'));
-  },
-
-  async push() {
-    console.log(chalk.bold.blue('\n⬆️  Push to n8n\n'));
-    const workflowsDir = join(process.cwd(), config.paths.workflowsDir);
-    const engine = new SyncEngine(workflowsDir);
-    await engine.initialize();
-    await engine.pushToN8n();
-    console.log(chalk.green('\n✓ Push completed\n'));
-  },
-
-  async sync() {
-    console.log(chalk.bold.blue('\n🔄 Full sync\n'));
-    const workflowsDir = join(process.cwd(), config.paths.workflowsDir);
-    const engine = new SyncEngine(workflowsDir);
-    await engine.initialize();
-    await engine.sync();
-    console.log(chalk.green('\n✓ Sync completed\n'));
-  },
-
-  async watch() {
-    console.log(chalk.bold.blue('\n👁️  Watch mode\n'));
-    const workflowsDir = join(process.cwd(), config.paths.workflowsDir);
-    const watcher = new FileWatcher(workflowsDir);
-    await watcher.start();
-    
-    // Keep process alive
-    process.on('SIGINT', async () => {
-      await watcher.stop();
-      process.exit(0);
-    });
-  },
-
-  help() {
-    console.log(chalk.bold('\nn8n Workflow Sync Service\n'));
-    console.log('Usage: npm run <command>\n');
-    console.log('Commands:');
-    console.log('  start      - Start full sync service (watch + periodic pull)');
-    console.log('  pull       - Pull workflows from n8n to local files');
-    console.log('  push       - Push local workflows to n8n');
-    console.log('  sync       - Full bidirectional sync (pull + push)');
-    console.log('  watch      - Watch local files and auto-push changes');
-    console.log('  help       - Show this help message\n');
-  },
-};
-
-// Parse command line arguments
-const command = process.argv[2] || 'start';
-
-if (commands[command]) {
-  commands[command]().catch((error) => {
-    console.error(chalk.red('\n✗ Error:'), error.message);
-    process.exit(1);
-  });
-} else {
-  console.error(chalk.red(`\n✗ Unknown command: ${command}\n`));
-  commands.help();
-  process.exit(1);
-}
+// Start the service
+const service = new SyncService();
+service.start();
 

@@ -1,25 +1,54 @@
 {
   "name": "n8n-workflow-sync",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Bidirectional auto-sync service for n8n workflows with local Git repository",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
+    "gui": "node src/gui-server.js",
     "dev": "nodemon src/index.js",
     "watch": "node src/watcher.js",
     "sync:pull": "node src/pull-from-n8n.js",
     "sync:push": "node src/push-to-n8n.js",
     "sync:full": "npm run sync:pull && npm run sync:push",
     "setup": "node src/setup.js",
-    "test": "node --test src/**/*.test.js"
+    "test": "node --test tests/**/*.test.js",
+    "test:unit": "node --test tests/unit/**/*.test.js",
+    "test:integration": "node --test tests/integration/**/*.test.js",
+    "test:webhook": "node --test tests/webhook-comprehensive.test.js",
+    "test:comprehensive": "node --test tests/comprehensive-validation.test.js",
+    "test:all": "node tests/master-validation.js",
+    "test:watch": "node --test --watch tests/**/*.test.js",
+    "test:coverage": "c8 npm run test",
+    "lint": "eslint src/ tests/",
+    "lint:fix": "eslint src/ tests/ --fix",
+    "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\"",
+    "format:check": "prettier --check \"src/**/*.js\" \"tests/**/*.js\"",
+    "validate": "npm run lint && npm run test",
+    "validate:all": "node validate.js",
+    "workflows:list": "node src/commands/list-workflows.js",
+    "workflows:activate": "node src/commands/activate-workflow.js",
+    "workflows:deactivate": "node src/commands/deactivate-workflow.js",
+    "workflows:prune": "node src/commands/prune-workflows.js",
+    "workflows:diff": "node src/commands/diff-workflows.js",
+    "workflows:search": "node src/commands/search-workflows.js",
+    "completion": "node src/commands/completion.js",
+    "completion:bash": "node src/commands/completion.js bash",
+    "completion:zsh": "node src/commands/completion.js zsh",
+    "completion:fish": "node src/commands/completion.js fish",
+    "version": "node src/commands/version.js",
+    "prepare": "husky install || true"
   },
   "keywords": [
     "n8n",
     "workflow",
     "sync",
     "automation",
-    "git"
+    "git",
+    "gitops",
+    "devops",
+    "ci-cd"
   ],
   "author": "SynthEngyne",
   "license": "MIT",
@@ -31,13 +60,20 @@
     "ora": "^8.0.1",
     "minimatch": "^10.0.1",
     "fast-json-patch": "^3.1.1",
-    "crypto": "^1.0.1"
+    "js-yaml": "^4.1.0",
+    "commander": "^12.0.0",
+    "winston": "^3.11.0",
+    "p-retry": "^6.2.0",
+    "p-queue": "^8.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "nodemon": "^3.1.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.2.5",
+    "c8": "^9.1.0",
+    "husky": "^9.0.11"
   },
   "engines": {
     "node": ">=18.0.0"
   }
 }
-

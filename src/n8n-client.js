@@ -1,175 +1,218 @@
-import fetch from 'node-fetch';
+#!/usr/bin/env node
+
+/**
+ * n8n API Client
+ * 
+ * Handles all communication with the n8n API.
+ * 
+ * @module n8n-client
+ */
+
+import { winstonLogger as logger } from './logger-enhanced.js';
 import { config } from './config.js';
 
 /**
- * n8n API Client for workflow management
+ * n8n API Client
  */
 export class N8nClient {
-  constructor() {
-    this.baseUrl = config.n8n.apiUrl;
-    this.apiKey = config.n8n.apiKey;
-    this.headers = {
+  constructor(apiUrl = null, apiKey = null) {
+    this.apiUrl = apiUrl || config.n8n.apiUrl;
+    this.apiKey = apiKey || config.n8n.apiKey;
+
+    if (!this.apiUrl) {
+      throw new Error('N8N_API_URL is required');
+    }
+    if (!this.apiKey) {
+      throw new Error('N8N_API_KEY is required');
+    }
+
+    logger.info('N8nClient initialized', {
+      context: 'N8nClient',
+      apiUrl: this.apiUrl,
+    });
+  }
+
+  /**
+   * Make HTTP request to n8n API
+   */
+  async _request(method, path, body = null) {
+    const url = `${this.apiUrl}${path}`;
+    const headers = {
       'X-N8N-API-KEY': this.apiKey,
       'Content-Type': 'application/json',
     };
-  }
 
-  /**
-   * Make API request to n8n
-   */
-  async request(endpoint, options = {}) {
-    const url = `${this.baseUrl}${endpoint}`;
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        ...this.headers,
-        ...options.headers,
-      },
+    const options = {
+      method,
+      headers,
+    };
+
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
+
+    logger.debug(`API Request: ${method} ${path}`, {
+      context: 'N8nClient',
+      method,
+      path,
     });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`n8n API error (${response.status}): ${error}`);
-    }
+    try {
+      const response = await fetch(url, options);
+      const data = await response.json();
 
-    return response.json();
+      if (!response.ok) {
+        throw new Error(`n8n API error: ${response.status} - ${JSON.stringify(data)}`);
+      }
+
+      return data;
+    } catch (error) {
+      logger.error('API request failed', {
+        context: 'N8nClient',
+        method,
+        path,
+        error: error.message,
+      });
+      throw error;
+    }
   }
 
   /**
-   * List all workflows from n8n
+   * List all workflows
    */
   async listWorkflows() {
-    const workflows = [];
-    let cursor = null;
-    let hasMore = true;
+    logger.info('Fetching workflows from n8n', { context: 'N8nClient' });
 
-    while (hasMore) {
-      const params = new URLSearchParams({ limit: '100' });
-      if (cursor) params.append('cursor', cursor);
+    const data = await this._request('GET', '/workflows');
+    const workflows = data.data || [];
 
-      const response = await this.request(`/workflows?${params}`);
-      workflows.push(...response.data);
-
-      hasMore = response.nextCursor != null;
-      cursor = response.nextCursor;
-    }
+    logger.info(`Fetched ${workflows.length} workflows`, {
+      context: 'N8nClient',
+      count: workflows.length,
+    });
 
     return workflows;
   }
 
   /**
-   * Get workflow by ID
+   * Get a single workflow by ID
    */
   async getWorkflow(id) {
-    return this.request(`/workflows/${id}`);
+    logger.debug(`Fetching workflow ${id}`, { context: 'N8nClient', id });
+
+    const workflow = await this._request('GET', `/workflows/${id}`);
+
+    return workflow;
   }
 
   /**
-   * Clean workflow object for n8n API
-   * Only include fields that n8n API accepts for create/update operations
-   */
-  _cleanWorkflowForApi(workflow, isUpdate = false) {
-    // Clean nodes - remove 'id' field from each node as n8n API doesn't accept it
-    const cleanNodes = workflow.nodes ? workflow.nodes.map(node => {
-      const { id, ...nodeWithoutId } = node;
-      return nodeWithoutId;
-    }) : [];
-
-    // Start with required fields
-    const allowedFields = {
-      name: workflow.name,
-      nodes: cleanNodes,
-      connections: workflow.connections || {},
-      settings: workflow.settings || {}  // Always include settings (required by n8n API)
-    };
-
-    // 'active' field is read-only for updates, only include for create
-    if (!isUpdate && workflow.active !== undefined && workflow.active !== null) {
-      allowedFields.active = workflow.active;
-    }
-
-    // Optional fields - only include if they have values
-    if (workflow.staticData !== undefined && workflow.staticData !== null) {
-      allowedFields.staticData = workflow.staticData;
-    }
-
-    // Tags are read-only, don't include them
-    // if (workflow.tags && Array.isArray(workflow.tags) && workflow.tags.length > 0) {
-    //   allowedFields.tags = workflow.tags;
-    // }
-
-    if (workflow.pinData && typeof workflow.pinData === 'object' && Object.keys(workflow.pinData).length > 0) {
-      allowedFields.pinData = workflow.pinData;
-    }
-
-    return allowedFields;
-  }
-
-  /**
-   * Create new workflow
+   * Create a new workflow
    */
   async createWorkflow(workflow) {
-    const cleanWorkflow = this._cleanWorkflowForApi(workflow);
-    return this.request('/workflows', {
-      method: 'POST',
-      body: JSON.stringify(cleanWorkflow),
+    logger.info(`Creating workflow: ${workflow.name}`, {
+      context: 'N8nClient',
+      name: workflow.name,
     });
+
+    const created = await this._request('POST', '/workflows', workflow);
+
+    logger.info(`Created workflow: ${created.name} (${created.id})`, {
+      context: 'N8nClient',
+      id: created.id,
+      name: created.name,
+    });
+
+    return created;
   }
 
   /**
-   * Update existing workflow
+   * Update an existing workflow
    */
   async updateWorkflow(id, workflow) {
-    const cleanWorkflow = this._cleanWorkflowForApi(workflow, true); // true = isUpdate
-    return this.request(`/workflows/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(cleanWorkflow),
+    logger.info(`Updating workflow: ${workflow.name} (${id})`, {
+      context: 'N8nClient',
+      id,
+      name: workflow.name,
     });
+
+    const updated = await this._request('PUT', `/workflows/${id}`, workflow);
+
+    logger.info(`Updated workflow: ${updated.name}`, {
+      context: 'N8nClient',
+      id: updated.id,
+      name: updated.name,
+    });
+
+    return updated;
   }
 
   /**
-   * Delete workflow
+   * Delete a workflow
    */
   async deleteWorkflow(id) {
-    return this.request(`/workflows/${id}`, {
-      method: 'DELETE',
+    logger.info(`Deleting workflow: ${id}`, { context: 'N8nClient', id });
+
+    await this._request('DELETE', `/workflows/${id}`);
+
+    logger.info(`Deleted workflow: ${id}`, { context: 'N8nClient', id });
+  }
+
+  /**
+   * Activate a workflow
+   */
+  async activateWorkflow(id) {
+    logger.info(`Activating workflow: ${id}`, { context: 'N8nClient', id });
+
+    // Use the dedicated activate endpoint
+    const updated = await this._request('POST', `/workflows/${id}/activate`);
+
+    logger.info(`Activated workflow: ${updated.name}`, {
+      context: 'N8nClient',
+      id: updated.id,
+      name: updated.name,
     });
+
+    return updated;
   }
 
   /**
-   * Check n8n health
+   * Deactivate a workflow
    */
-  async healthCheck() {
-    try {
-      await this.request('/workflows?limit=1');
-      return { healthy: true };
-    } catch (error) {
-      return { healthy: false, error: error.message };
-    }
+  async deactivateWorkflow(id) {
+    logger.info(`Deactivating workflow: ${id}`, { context: 'N8nClient', id });
+
+    // Use the dedicated deactivate endpoint
+    const updated = await this._request('POST', `/workflows/${id}/deactivate`);
+
+    logger.info(`Deactivated workflow: ${updated.name}`, {
+      context: 'N8nClient',
+      id: updated.id,
+      name: updated.name,
+    });
+
+    return updated;
   }
 
   /**
-   * Get workflow by name
+   * Find workflow by name
    */
-  async getWorkflowByName(name) {
+  async findWorkflowByName(name) {
     const workflows = await this.listWorkflows();
-    return workflows.find(w => w.name === name);
+    return workflows.find((w) => w.name === name);
   }
 
   /**
-   * Batch update workflows
+   * Check if workflow exists
    */
-  async batchUpdate(updates) {
-    const results = [];
-    for (const update of updates) {
-      try {
-        const result = await this.updateWorkflow(update.id, update.workflow);
-        results.push({ success: true, id: update.id, result });
-      } catch (error) {
-        results.push({ success: false, id: update.id, error: error.message });
-      }
+  async workflowExists(id) {
+    try {
+      await this.getWorkflow(id);
+      return true;
+    } catch (error) {
+      return false;
     }
-    return results;
   }
 }
+
+export default N8nClient;
 
