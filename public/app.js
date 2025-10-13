@@ -1,6 +1,7 @@
 const API_URL = 'http://localhost:3001/api';
 const WS_URL = 'ws://localhost:3001';
 let ws;
+let allWorkflows = [];
 
 function connectWebSocket() {
     ws = new WebSocket(WS_URL);
@@ -20,7 +21,8 @@ function handleWebSocketMessage(message) {
     if (message.type === 'stats') {
         updateStats(message.data);
     } else if (message.type === 'workflows') {
-        renderWorkflows(message.data);
+        allWorkflows = message.data;
+        renderWorkflows(allWorkflows);
     }
 }
 
@@ -48,12 +50,25 @@ async function loadWorkflows() {
         const response = await fetch(`${API_URL}/workflows`);
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Failed to load workflows');
-        const workflows = Array.isArray(data) ? data : (data.workflows || []);
-        renderWorkflows(workflows);
+        allWorkflows = Array.isArray(data) ? data : (data.workflows || []);
+        renderWorkflows(allWorkflows);
     } catch (error) {
         console.error('Failed to load workflows:', error);
         showToast('Failed to load workflows: ' + error.message, 'error');
     }
+}
+
+function filterWorkflows() {
+    const searchTerm = document.getElementById('searchBar').value.toLowerCase();
+    if (!searchTerm) {
+        renderWorkflows(allWorkflows);
+        return;
+    }
+    const filtered = allWorkflows.filter(w =>
+        w.name.toLowerCase().includes(searchTerm) ||
+        w.id.toLowerCase().includes(searchTerm)
+    );
+    renderWorkflows(filtered);
 }
 
 function renderWorkflows(workflows) {
