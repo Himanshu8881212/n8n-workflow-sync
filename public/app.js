@@ -74,26 +74,26 @@ function filterWorkflows() {
 function renderWorkflows(workflows) {
     const list = document.getElementById('workflowList');
     if (!workflows || workflows.length === 0) {
-        list.innerHTML = '<div class="empty-state"><h3>No workflows found</h3></div>';
+        list.innerHTML = '<div class="empty">No workflows found</div>';
         return;
     }
     list.innerHTML = workflows.map(workflow => `
         <div class="workflow-item">
             <div class="workflow-info">
-                <h3>
+                <div class="workflow-name">
                     ${workflow.name}
                     <span class="badge ${workflow.active ? 'active' : 'inactive'}">
                         ${workflow.active ? 'Active' : 'Inactive'}
                     </span>
-                </h3>
-                <p>ID: ${workflow.id} • Nodes: ${workflow.nodes?.length || 0}</p>
+                </div>
+                <div class="workflow-meta">${workflow.id} • ${workflow.nodes?.length || 0} nodes</div>
             </div>
             <div class="workflow-actions">
                 ${workflow.active
-            ? `<button class="btn-secondary" onclick="deactivateWorkflow('${workflow.id}')">Deactivate</button>`
-            : `<button class="btn-secondary" onclick="activateWorkflow('${workflow.id}')">Activate</button>`
+            ? `<button class="btn btn-secondary" onclick="deactivateWorkflow('${workflow.id}')">Deactivate</button>`
+            : `<button class="btn btn-secondary" onclick="activateWorkflow('${workflow.id}')">Activate</button>`
         }
-                <button class="btn-danger" onclick="deleteWorkflow('${workflow.id}')">Delete</button>
+                <button class="btn btn-secondary" onclick="deleteWorkflow('${workflow.id}')">Delete</button>
             </div>
         </div>
     `).join('');
