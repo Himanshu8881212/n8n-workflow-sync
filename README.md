@@ -369,6 +369,6 @@ MIT License
 
 ---
 
-**Made with ❤️ by SynthEngyne**
+**Made with ❤️ by DataGen**
 
 **Total Features**: 35+ | **CLI Commands**: 29 | **GUI Features**: 11 | **Backend Services**: 7
