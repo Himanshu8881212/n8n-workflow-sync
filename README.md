@@ -2,10 +2,41 @@
 
 **Production-ready bidirectional sync service for n8n workflows with local Git repository.**
 
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](.) 
+[![Tests](https://img.shields.io/badge/tests-passing-brightgreen)](.)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](.)
 [![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](.)
 [![License](https://img.shields.io/badge/license-MIT-blue)](.)
+
+---
+
+## 🎯 Two Ways to Use
+
+### 🖥️ **GUI Dashboard** - For Easy Use
+Perfect for quick operations and visual workflow management. Simple, intuitive interface for everyday tasks.
+
+**Best for:**
+- Quick sync operations (Pull/Push/Full Sync)
+- Browsing and searching workflows
+- Activating/deactivating workflows
+- Real-time status monitoring
+- Users who prefer visual interfaces
+
+**Access:** `npm run gui` → http://localhost:3001
+
+### ⌨️ **CLI Commands** - For Advanced Use & Flexibility
+Full power and flexibility with 29+ commands. Perfect for automation, scripting, and advanced operations.
+
+**Best for:**
+- Comparing workflows (diff)
+- Pruning deleted workflows
+- Shell completion setup
+- Testing and validation
+- CI/CD pipelines
+- Advanced filtering and search
+- Automation scripts
+- Power users and developers
+
+**Access:** `npm run <command>` (see full list below)
 
 ---
 
@@ -75,8 +106,15 @@ WEBHOOK_SECRET=your-secret-key
 LOG_LEVEL=info
 ```
 
-### 3. Start the Service
+### 3. Start Using
 
+**Option A: GUI Dashboard (Easy)**
+```bash
+npm run gui
+# Open http://localhost:3001 in your browser
+```
+
+**Option B: CLI Commands (Advanced)**
 ```bash
 # Start auto-sync service
 npm start
@@ -85,6 +123,68 @@ npm start
 npm run sync:pull    # Pull from n8n
 npm run sync:push    # Push to n8n
 npm run sync:full    # Full bidirectional sync
+```
+
+---
+
+## 📚 Complete CLI Command Reference
+
+### 🚀 **Main Services**
+```bash
+npm start              # Start full service (file watcher + webhook server)
+npm run gui            # Start GUI dashboard (http://localhost:3001)
+npm run prod           # Start GUI in production mode
+npm run dev            # Start with nodemon (auto-restart)
+```
+
+### 🔄 **Sync Operations**
+```bash
+npm run sync:pull      # Pull workflows from n8n
+npm run sync:push      # Push workflows to n8n
+npm run sync:full      # Full bidirectional sync
+```
+
+### 📊 **Workflow Management**
+```bash
+npm run workflows:list                    # List all workflows
+npm run workflows:search "keyword"        # Search workflows
+npm run workflows:activate <workflow-id>  # Activate workflow
+npm run workflows:deactivate <id>         # Deactivate workflow
+npm run workflows:diff                    # Compare local vs remote
+npm run workflows:prune                   # Remove deleted workflows
+npm run workflows:prune --dry-run         # Preview what will be deleted
+```
+
+### 🐚 **Shell Completion** (Advanced)
+```bash
+npm run completion           # Show completion help
+npm run completion:bash      # Generate bash completion
+npm run completion:zsh       # Generate zsh completion
+npm run completion:fish      # Generate fish completion
+```
+
+### 🧪 **Testing** (Developers)
+```bash
+npm test                     # Run all tests
+npm run test:unit            # Run unit tests only
+npm run test:integration     # Run integration tests
+npm run test:webhook         # Run webhook tests
+npm run test:watch           # Run tests in watch mode
+npm run test:coverage        # Run tests with coverage report
+```
+
+### ✨ **Code Quality** (Developers)
+```bash
+npm run lint                 # Run ESLint
+npm run lint:fix             # Auto-fix ESLint issues
+npm run format               # Format code with Prettier
+npm run format:check         # Check code formatting
+npm run validate             # Run lint + test
+```
+
+### ℹ️ **Info**
+```bash
+npm run version              # Show version info
 ```
 
 ---

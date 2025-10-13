@@ -11,7 +11,7 @@
 import chalk from 'chalk';
 import { N8nClient } from '../n8n-client.js';
 import { FileManager } from '../file-manager.js';
-import config from '../config.js';
+import { config } from '../config.js';
 
 /**
  * Search workflows by various criteria
@@ -58,7 +58,7 @@ class WorkflowSearcher {
         const name = caseSensitive ? w.name : w.name.toLowerCase();
         const desc = w.description || '';
         const description = caseSensitive ? desc : desc.toLowerCase();
-        
+
         return name.includes(searchQuery) || description.includes(searchQuery);
       });
     }
@@ -275,7 +275,7 @@ export async function searchWorkflowsCommand(options = {}) {
 // CLI execution
 if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
-  
+
   const options = {
     query: args.find((a) => !a.startsWith('--')) || null,
     tags: args.filter((a) => a.startsWith('--tag=')).map((a) => a.replace('--tag=', '')),
