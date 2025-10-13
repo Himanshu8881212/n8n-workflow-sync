@@ -11,7 +11,7 @@
 import chalk from 'chalk';
 import { N8nClient } from '../n8n-client.js';
 import { FileManager } from '../file-manager.js';
-import config from '../config.js';
+import { config } from '../config.js';
 
 /**
  * Calculate diff between two workflow objects
@@ -24,11 +24,11 @@ function calculateDiff(local, remote) {
 
   // Compare basic fields
   const fieldsToCompare = ['name', 'active', 'tags', 'settings'];
-  
+
   for (const field of fieldsToCompare) {
     const localValue = JSON.stringify(local[field]);
     const remoteValue = JSON.stringify(remote[field]);
-    
+
     if (localValue !== remoteValue) {
       diff.changed = true;
       diff.fields[field] = {
@@ -41,7 +41,7 @@ function calculateDiff(local, remote) {
   // Compare nodes
   const localNodes = JSON.stringify(local.nodes || []);
   const remoteNodes = JSON.stringify(remote.nodes || []);
-  
+
   if (localNodes !== remoteNodes) {
     diff.changed = true;
     diff.fields.nodes = {
@@ -55,7 +55,7 @@ function calculateDiff(local, remote) {
   // Compare connections
   const localConnections = JSON.stringify(local.connections || {});
   const remoteConnections = JSON.stringify(remote.connections || {});
-  
+
   if (localConnections !== remoteConnections) {
     diff.changed = true;
     diff.fields.connections = {
@@ -68,7 +68,7 @@ function calculateDiff(local, remote) {
   if (local.updatedAt && remote.updatedAt) {
     const localTime = new Date(local.updatedAt).getTime();
     const remoteTime = new Date(remote.updatedAt).getTime();
-    
+
     diff.newerVersion = localTime > remoteTime ? 'local' : 'remote';
     diff.timeDiff = Math.abs(localTime - remoteTime);
   }
@@ -99,18 +99,18 @@ function formatDiff(workflowName, diff, format = 'pretty') {
   // Show field differences
   for (const [field, values] of Object.entries(diff.fields)) {
     output += chalk.cyan(`\n  ${field}:\n`);
-    
+
     if (field === 'nodes') {
       output += chalk.red(`    - Local: ${values.local} nodes\n`);
       output += chalk.green(`    + Remote: ${values.remote} nodes\n`);
-      
+
       // Show added/removed nodes
       const localNodeIds = new Set(values.localNodes.map((n) => n.id));
       const remoteNodeIds = new Set(values.remoteNodes.map((n) => n.id));
-      
+
       const added = values.remoteNodes.filter((n) => !localNodeIds.has(n.id));
       const removed = values.localNodes.filter((n) => !remoteNodeIds.has(n.id));
-      
+
       if (added.length > 0) {
         output += chalk.green(`    + Added nodes: ${added.map((n) => n.name).join(', ')}\n`);
       }
@@ -178,7 +178,7 @@ export async function diffWorkflowsCommand(options = {}) {
       if (workflowName && name !== workflowName) continue;
 
       const remote = remoteMap.get(name);
-      
+
       if (!remote) {
         localOnlyCount++;
         results.push({
@@ -190,7 +190,7 @@ export async function diffWorkflowsCommand(options = {}) {
       }
 
       const diff = calculateDiff(local, remote);
-      
+
       if (diff.changed) {
         changedCount++;
         results.push({
@@ -213,7 +213,7 @@ export async function diffWorkflowsCommand(options = {}) {
     // Check for remote-only workflows
     for (const [name, remote] of remoteMap) {
       if (workflowName && name !== workflowName) continue;
-      
+
       if (!localMap.has(name)) {
         remoteOnlyCount++;
         results.push({
