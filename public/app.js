@@ -98,32 +98,52 @@ function filterWorkflows() {
     renderWorkflows(filtered);
 }
 
+function hasTriggerNode(workflow) {
+    if (!workflow.nodes || !Array.isArray(workflow.nodes)) return false;
+
+    // Check if workflow has any trigger, webhook, or poller nodes
+    const triggerTypes = ['trigger', 'webhook', 'poll'];
+    return workflow.nodes.some(node => {
+        const nodeType = (node.type || '').toLowerCase();
+        return triggerTypes.some(type => nodeType.includes(type));
+    });
+}
+
 function renderWorkflows(workflows) {
     const list = document.getElementById('workflowList');
     if (!workflows || workflows.length === 0) {
         list.innerHTML = '<div class="empty">No workflows found</div>';
         return;
     }
-    list.innerHTML = workflows.map(workflow => `
+    list.innerHTML = workflows.map(workflow => {
+        const hasTrigger = hasTriggerNode(workflow);
+
+        return `
         <div class="workflow-item">
             <div class="workflow-info">
                 <div class="workflow-name">
                     ${workflow.name}
-                    <span class="badge ${workflow.active ? 'active' : 'inactive'}">
-                        ${workflow.active ? 'Active' : 'Inactive'}
-                    </span>
+                    ${hasTrigger
+                ? `<span class="badge ${workflow.active ? 'active' : 'inactive'}">
+                            ${workflow.active ? 'Active' : 'Inactive'}
+                           </span>`
+                : `<span class="badge manual">Manual</span>`
+            }
                 </div>
                 <div class="workflow-meta">${workflow.id} • ${workflow.nodes?.length || 0} nodes</div>
             </div>
             <div class="workflow-actions">
-                ${workflow.active
-            ? `<button class="btn btn-secondary" onclick="deactivateWorkflow('${workflow.id}')">Deactivate</button>`
-            : `<button class="btn btn-secondary" onclick="activateWorkflow('${workflow.id}')">Activate</button>`
-        }
+                ${hasTrigger
+                ? (workflow.active
+                    ? `<button class="btn btn-secondary" onclick="deactivateWorkflow('${workflow.id}')">Deactivate</button>`
+                    : `<button class="btn btn-secondary" onclick="activateWorkflow('${workflow.id}')">Activate</button>`)
+                : `<span style="color: #666; font-size: 11px;">Manual execution only</span>`
+            }
                 <button class="btn btn-secondary" onclick="deleteWorkflow('${workflow.id}')">Delete</button>
             </div>
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 async function triggerPull() {
