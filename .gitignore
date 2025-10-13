@@ -13,10 +13,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Test directories
+# Test directories and files
 test-workflows/
-test-integration-workflows/
+tests/
 coverage/
+
+# Sync state
+.sync-state.json
+.sync-state.json.backup
 
 # OS
 .DS_Store
@@ -29,3 +33,6 @@ Thumbs.db
 *.swo
 *~
 
+# Build
+dist/
+build/
