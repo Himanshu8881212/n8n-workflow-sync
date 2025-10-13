@@ -2,6 +2,7 @@ const API_URL = 'http://localhost:3001/api';
 const WS_URL = 'ws://localhost:3001';
 let ws;
 let allWorkflows = [];
+let currentFilter = 'all';
 
 function connectWebSocket() {
     ws = new WebSocket(WS_URL);
@@ -42,7 +43,11 @@ function updateStats(stats) {
     document.getElementById('lastSync').textContent = stats.lastSync
         ? new Date(stats.lastSync).toLocaleString()
         : 'Never';
-    document.getElementById('status').textContent = stats.status || 'Idle';
+
+    // Capitalize status
+    const status = stats.status || 'idle';
+    const statusText = status.charAt(0).toUpperCase() + status.slice(1);
+    document.getElementById('status').textContent = statusText;
 }
 
 async function loadWorkflows() {
@@ -58,16 +63,38 @@ async function loadWorkflows() {
     }
 }
 
+function setFilter(filter) {
+    currentFilter = filter;
+
+    // Update button states
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    event.target.classList.add('active');
+
+    filterWorkflows();
+}
+
 function filterWorkflows() {
     const searchTerm = document.getElementById('searchBar').value.toLowerCase();
-    if (!searchTerm) {
-        renderWorkflows(allWorkflows);
-        return;
+
+    let filtered = allWorkflows;
+
+    // Apply status filter
+    if (currentFilter === 'active') {
+        filtered = filtered.filter(w => w.active === true);
+    } else if (currentFilter === 'inactive') {
+        filtered = filtered.filter(w => w.active === false);
     }
-    const filtered = allWorkflows.filter(w =>
-        w.name.toLowerCase().includes(searchTerm) ||
-        w.id.toLowerCase().includes(searchTerm)
-    );
+
+    // Apply search filter
+    if (searchTerm) {
+        filtered = filtered.filter(w =>
+            w.name.toLowerCase().includes(searchTerm) ||
+            w.id.toLowerCase().includes(searchTerm)
+        );
+    }
+
     renderWorkflows(filtered);
 }
 
@@ -145,11 +172,18 @@ async function activateWorkflow(id) {
     try {
         const response = await fetch(`${API_URL}/workflows/${id}/activate`, { method: 'POST' });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.error || 'Activation failed');
+        if (!response.ok) {
+            // Extract meaningful error message
+            let errorMsg = data.error || 'Activation failed';
+            if (errorMsg.includes('no node to start the workflow')) {
+                errorMsg = 'Workflow needs a trigger, webhook, or poller node to be activated';
+            }
+            throw new Error(errorMsg);
+        }
         showToast('Workflow activated', 'success');
         loadWorkflows();
     } catch (error) {
-        showToast('Activation failed: ' + error.message, 'error');
+        showToast(error.message, 'error');
     }
 }
 

@@ -56,7 +56,11 @@ export class GUIServer {
       try {
         const workflows = await this.client.listWorkflows();
         this.stats.totalWorkflows = workflows.length;
-        res.json(this.stats);
+        res.json({
+          totalWorkflows: this.stats.totalWorkflows,
+          lastSync: this.stats.lastSync,
+          status: this.stats.syncStatus, // Map syncStatus to status for frontend
+        });
       } catch (error) {
         logger.error('Failed to get stats', { context: 'GUIServer', error: error.message });
         res.status(500).json({ error: error.message, workflows: [] });
@@ -87,18 +91,20 @@ export class GUIServer {
     // Trigger pull
     this.app.post('/api/sync/pull', async (req, res) => {
       try {
-        this.broadcast({ type: 'sync-start', operation: 'pull' });
         this.stats.syncStatus = 'pulling';
+        this.broadcast({ type: 'stats', data: { status: 'pulling' } });
 
         const result = await this.syncEngine.pullFromN8n();
 
         this.stats.lastSync = new Date().toISOString();
         this.stats.syncStatus = 'idle';
+        this.broadcast({ type: 'stats', data: { status: 'idle', lastSync: this.stats.lastSync } });
 
         this.broadcast({ type: 'sync-complete', operation: 'pull', result });
         res.json(result);
       } catch (error) {
         this.stats.syncStatus = 'error';
+        this.broadcast({ type: 'stats', data: { status: 'error' } });
         this.stats.errors.push({ timestamp: new Date(), error: error.message });
         this.broadcast({ type: 'sync-error', operation: 'pull', error: error.message });
         res.status(500).json({ error: error.message });
@@ -108,18 +114,20 @@ export class GUIServer {
     // Trigger push
     this.app.post('/api/sync/push', async (req, res) => {
       try {
-        this.broadcast({ type: 'sync-start', operation: 'push' });
         this.stats.syncStatus = 'pushing';
+        this.broadcast({ type: 'stats', data: { status: 'pushing' } });
 
         const result = await this.syncEngine.pushToN8n();
 
         this.stats.lastSync = new Date().toISOString();
         this.stats.syncStatus = 'idle';
+        this.broadcast({ type: 'stats', data: { status: 'idle', lastSync: this.stats.lastSync } });
 
         this.broadcast({ type: 'sync-complete', operation: 'push', result });
         res.json(result);
       } catch (error) {
         this.stats.syncStatus = 'error';
+        this.broadcast({ type: 'stats', data: { status: 'error' } });
         this.stats.errors.push({ timestamp: new Date(), error: error.message });
         this.broadcast({ type: 'sync-error', operation: 'push', error: error.message });
         res.status(500).json({ error: error.message });
@@ -129,18 +137,20 @@ export class GUIServer {
     // Trigger full sync
     this.app.post('/api/sync/full', async (req, res) => {
       try {
-        this.broadcast({ type: 'sync-start', operation: 'full' });
         this.stats.syncStatus = 'syncing';
+        this.broadcast({ type: 'stats', data: { status: 'syncing' } });
 
         const result = await this.syncEngine.fullSync();
 
         this.stats.lastSync = new Date().toISOString();
         this.stats.syncStatus = 'idle';
+        this.broadcast({ type: 'stats', data: { status: 'idle', lastSync: this.stats.lastSync } });
 
         this.broadcast({ type: 'sync-complete', operation: 'full', result });
         res.json(result);
       } catch (error) {
         this.stats.syncStatus = 'error';
+        this.broadcast({ type: 'stats', data: { status: 'error' } });
         this.stats.errors.push({ timestamp: new Date(), error: error.message });
         this.broadcast({ type: 'sync-error', operation: 'full', error: error.message });
         res.status(500).json({ error: error.message });
