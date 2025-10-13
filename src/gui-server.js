@@ -96,9 +96,20 @@ export class GUIServer {
 
         const result = await this.syncEngine.pullFromN8n();
 
+        // Update workflow count
+        const workflows = await this.client.listWorkflows();
+        this.stats.totalWorkflows = workflows.length;
         this.stats.lastSync = new Date().toISOString();
         this.stats.syncStatus = 'idle';
-        this.broadcast({ type: 'stats', data: { status: 'idle', lastSync: this.stats.lastSync } });
+
+        this.broadcast({
+          type: 'stats',
+          data: {
+            status: 'idle',
+            lastSync: this.stats.lastSync,
+            totalWorkflows: this.stats.totalWorkflows
+          }
+        });
 
         this.broadcast({ type: 'sync-complete', operation: 'pull', result });
         res.json(result);
@@ -119,9 +130,20 @@ export class GUIServer {
 
         const result = await this.syncEngine.pushToN8n();
 
+        // Update workflow count
+        const workflows = await this.client.listWorkflows();
+        this.stats.totalWorkflows = workflows.length;
         this.stats.lastSync = new Date().toISOString();
         this.stats.syncStatus = 'idle';
-        this.broadcast({ type: 'stats', data: { status: 'idle', lastSync: this.stats.lastSync } });
+
+        this.broadcast({
+          type: 'stats',
+          data: {
+            status: 'idle',
+            lastSync: this.stats.lastSync,
+            totalWorkflows: this.stats.totalWorkflows
+          }
+        });
 
         this.broadcast({ type: 'sync-complete', operation: 'push', result });
         res.json(result);
@@ -142,9 +164,20 @@ export class GUIServer {
 
         const result = await this.syncEngine.fullSync();
 
+        // Update workflow count
+        const workflows = await this.client.listWorkflows();
+        this.stats.totalWorkflows = workflows.length;
         this.stats.lastSync = new Date().toISOString();
         this.stats.syncStatus = 'idle';
-        this.broadcast({ type: 'stats', data: { status: 'idle', lastSync: this.stats.lastSync } });
+
+        this.broadcast({
+          type: 'stats',
+          data: {
+            status: 'idle',
+            lastSync: this.stats.lastSync,
+            totalWorkflows: this.stats.totalWorkflows
+          }
+        });
 
         this.broadcast({ type: 'sync-complete', operation: 'full', result });
         res.json(result);

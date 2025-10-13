@@ -19,11 +19,18 @@ function connectWebSocket() {
 }
 
 function handleWebSocketMessage(message) {
+    console.log('WebSocket message received:', message);
+
     if (message.type === 'stats') {
+        console.log('Updating stats with:', message.data);
         updateStats(message.data);
     } else if (message.type === 'workflows') {
         allWorkflows = message.data;
-        renderWorkflows(allWorkflows);
+        filterWorkflows();
+    } else if (message.type === 'sync-complete') {
+        console.log('Sync complete:', message.operation);
+        loadStats();
+        loadWorkflows();
     }
 }
 
@@ -39,15 +46,24 @@ async function loadStats() {
 }
 
 function updateStats(stats) {
-    document.getElementById('totalWorkflows').textContent = stats.totalWorkflows || 0;
-    document.getElementById('lastSync').textContent = stats.lastSync
-        ? new Date(stats.lastSync).toLocaleString()
-        : 'Never';
+    console.log('updateStats called with:', stats);
 
-    // Capitalize status
-    const status = stats.status || 'idle';
-    const statusText = status.charAt(0).toUpperCase() + status.slice(1);
-    document.getElementById('status').textContent = statusText;
+    // Update total workflows
+    if (stats.totalWorkflows !== undefined) {
+        document.getElementById('totalWorkflows').textContent = stats.totalWorkflows;
+    }
+
+    // Update last sync
+    if (stats.lastSync) {
+        document.getElementById('lastSync').textContent = new Date(stats.lastSync).toLocaleString();
+    }
+
+    // Update status - this is the key part!
+    if (stats.status) {
+        const statusText = stats.status.charAt(0).toUpperCase() + stats.status.slice(1);
+        document.getElementById('status').textContent = statusText;
+        console.log('Status updated to:', statusText);
+    }
 }
 
 async function loadWorkflows() {
@@ -240,6 +256,7 @@ function showToast(message, type = 'info') {
     setTimeout(() => toast.className = 'toast', 3000);
 }
 
+// Initialize app
 connectWebSocket();
 loadStats();
 loadWorkflows();
