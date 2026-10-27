@@ -197,7 +197,18 @@ export class N8nClient {
    * List credentials (id, name, type - never the secret data)
    */
   async listCredentials() {
-    return this._listAll('/credentials');
+    try {
+      return await this._listAll('/credentials');
+    } catch (error) {
+      // n8n 1.x has no "list credentials" endpoint
+      if (error.status === 405 || error.status === 404) {
+        throw Object.assign(new Error('This n8n version cannot list credentials through its API (needs n8n 2.x) - manage credentials in the n8n UI'), {
+          status: error.status,
+          unsupported: true,
+        });
+      }
+      throw error;
+    }
   }
 
   /**

@@ -67,6 +67,13 @@ echo '// local edit' >> flows/hello-webhook.build_reply.js
 S pull --force --json > /dev/null && ok "conflict guards (push + pull) + pull --force"
 
 # --- credentials from env vars (API key type + OAuth type)
+if [[ $N8N_VERSION == 1.* ]]; then
+  # n8n 1.x can't list credentials via the API: expect a clear message, not a crash
+  echo '[{"name":"X","type":"httpHeaderAuth","data":{"name":"X","value":"{{env.X}}"}}]' > flows/credentials.n8n.json
+  X=1 S credentials push 2>&1 | grep -q "needs n8n 2.x" || fail "n8n 1.x: credentials push should explain it's unsupported"
+  rm flows/credentials.n8n.json
+  ok "n8n 1.x: credentials push explains it needs n8n 2.x"
+else
 cat > flows/credentials.n8n.json <<'EOF'
 [
   { "name": "CI Header", "type": "httpHeaderAuth", "data": { "name": "X-Key", "value": "{{env.CI_HEADER_SECRET}}" } },
@@ -83,6 +90,7 @@ grep -rq "$SECRET" . && fail "secret leaked into a file"
 ok "credentials push (header + OAuth), no secret in output/files"
 S credentials test --json > "$WORK/ct.json" || true
 jq -e '.results | length == 2' "$WORK/ct.json" > /dev/null && ok "credentials test: $(jq -c '[.results[] | {name, status}]' "$WORK/ct.json")"
+fi
 
 # --- pagination: 300 extra workflows
 # (xargs, not `&` + `wait`: a bare wait would also wait for n8n itself)
