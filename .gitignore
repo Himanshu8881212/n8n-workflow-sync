@@ -13,9 +13,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Test directories and files
-test-workflows/
-tests/
+# Local workflow files / test output
+/workflows/
+/test-workflows/
 coverage/
 
 # Sync state

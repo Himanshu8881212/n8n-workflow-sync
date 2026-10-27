@@ -1,0 +1,46 @@
+# Validate flows on pull requests, deploy them to n8n when merged to main.
+#
+# Setup: repo Settings → Secrets and variables → Actions → add
+#   N8N_API_URL  e.g. https://n8n.example.com/api/v1  (must be reachable from GitHub)
+#   N8N_API_KEY
+#
+# On deploy, git is the source of truth: --force overwrites edits made in the
+# n8n UI (each overwritten version is backed up in the job's workspace only),
+# so make UI changes in a branch via `n8n-sync pull` + PR instead.
+
+name: n8n flows
+
+on:
+  pull_request:
+    paths: ['flows/**']
+  push:
+    branches: [main]
+    paths: ['flows/**']
+  workflow_dispatch:
+
+env:
+  N8N_SYNC: github:Himanshu8881212/n8n-workflow-sync#main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - run: npx -y "$N8N_SYNC" validate -d flows
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      # Files with "active": true are activated after deploy
+      - run: npx -y "$N8N_SYNC" push -d flows --force
+        env:
+          N8N_API_URL: ${{ secrets.N8N_API_URL }}
+          N8N_API_KEY: ${{ secrets.N8N_API_KEY }}

@@ -1,0 +1,37 @@
+{
+  "name": "Hello Webhook",
+  "active": true,
+  "tags": ["example"],
+  "nodes": [
+    {
+      "id": "webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "webhookId": "hello-webhook",
+      "parameters": { "path": "hello-webhook", "httpMethod": "POST", "responseMode": "responseNode" }
+    },
+    {
+      "id": "reply",
+      "name": "Build Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0],
+      "parameters": { "jsCode": "@file:./hello-webhook.build_reply.js" }
+    },
+    {
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [480, 0],
+      "parameters": { "respondWith": "firstIncomingItem" }
+    }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Build Reply", "type": "main", "index": 0 }]] },
+    "Build Reply": { "main": [[{ "node": "Respond", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

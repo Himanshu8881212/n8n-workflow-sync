@@ -1,0 +1,75 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: [20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: CLI smoke test (paths, init, validate)
+        shell: bash
+        run: |
+          node src/cli.js validate -d templates/project/flows --strict
+          node src/cli.js init "$RUNNER_TEMP/proj"
+          node src/cli.js validate -d "$RUNNER_TEMP/proj/flows" --strict
+          test -f "$RUNNER_TEMP/proj/.gitignore" && test -f "$RUNNER_TEMP/proj/.claude/settings.json"
+
+  # Which install methods work on which Node version (docs depend on it)
+  install:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+        method: [npx, global]
+    name: install (${{ matrix.method }}, node ${{ matrix.node }})
+    # Known npm 10 bug (Node 20/22): `npx github:...` fails with "GitFetcher requires an
+    # Arborist constructor". Documented in the README; kept here to notice when it's fixed.
+    continue-on-error: ${{ matrix.method == 'npx' && matrix.node != 24 }}
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: npx github:<repo>#<sha>
+        if: matrix.method == 'npx'
+        run: npx -y "github:${{ github.repository }}#${{ github.sha }}" --help
+      - name: npm install -g github:<repo>#<sha>
+        if: matrix.method == 'global'
+        run: npm install -g "github:${{ github.repository }}#${{ github.sha }}" && n8n-sync --help
+
+  # Real n8n inside the runner; the tool installed with npx from this commit,
+  # exactly like a user (or the project template's GitHub Action) would.
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - n8n: 2.45.4   # pinned: n8n@latest itself can be briefly uninstallable (broken deps)
+            node: 24
+          - n8n: 1.123.88
+            node: 24
+    name: e2e (n8n ${{ matrix.n8n }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: bash .github/scripts/e2e.sh
+        env:
+          N8N_VERSION: ${{ matrix.n8n }}
+          TOOL_SPEC: github:${{ github.repository }}#${{ github.sha }}

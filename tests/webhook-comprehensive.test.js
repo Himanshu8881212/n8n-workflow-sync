@@ -44,13 +44,19 @@ describe('WebhookServer - Comprehensive Tests', () => {
   let syncEngine;
   const port = 3100;
   const baseUrl = `http://localhost:${port}`;
+  const secret = 'basic-secret';
+  // Empty-body POST signed with the shared secret
+  const signedPost = {
+    method: 'POST',
+    headers: { 'X-Webhook-Signature': crypto.createHmac('sha256', secret).update('').digest('hex') },
+  };
 
   before(async () => {
     syncEngine = new MockSyncEngine();
     server = new WebhookServer(syncEngine, {
       port,
       enabled: true,
-      secret: null, // No secret for basic tests
+      secret,
     });
     await server.start();
   });
@@ -106,9 +112,7 @@ describe('WebhookServer - Comprehensive Tests', () => {
     it('should trigger pull sync', async () => {
       syncEngine.reset();
 
-      const response = await fetch(`${baseUrl}/sync/pull`, {
-        method: 'POST',
-      });
+      const response = await fetch(`${baseUrl}/sync/pull`, signedPost);
 
       assert.strictEqual(response.status, 200);
 
@@ -124,7 +128,7 @@ describe('WebhookServer - Comprehensive Tests', () => {
     it('should increment metrics on pull', async () => {
       const beforeMetrics = server.getMetrics();
 
-      await fetch(`${baseUrl}/sync/pull`, { method: 'POST' });
+      await fetch(`${baseUrl}/sync/pull`, signedPost);
 
       const afterMetrics = server.getMetrics();
       assert.ok(afterMetrics.requests > beforeMetrics.requests);
@@ -136,9 +140,7 @@ describe('WebhookServer - Comprehensive Tests', () => {
     it('should trigger push sync', async () => {
       syncEngine.reset();
 
-      const response = await fetch(`${baseUrl}/sync/push`, {
-        method: 'POST',
-      });
+      const response = await fetch(`${baseUrl}/sync/push`, signedPost);
 
       assert.strictEqual(response.status, 200);
 
@@ -156,9 +158,7 @@ describe('WebhookServer - Comprehensive Tests', () => {
     it('should trigger full sync', async () => {
       syncEngine.reset();
 
-      const response = await fetch(`${baseUrl}/sync/full`, {
-        method: 'POST',
-      });
+      const response = await fetch(`${baseUrl}/sync/full`, signedPost);
 
       assert.strictEqual(response.status, 200);
 
@@ -207,13 +207,6 @@ describe('WebhookServer - Comprehensive Tests', () => {
       assert.ok(data.error);
     });
 
-    it('should handle OPTIONS requests (CORS)', async () => {
-      const response = await fetch(`${baseUrl}/sync/pull`, {
-        method: 'OPTIONS',
-      });
-      assert.strictEqual(response.status, 204);
-    });
-
     it('should reject wrong HTTP method', async () => {
       const response = await fetch(`${baseUrl}/sync/pull`, {
         method: 'GET',
@@ -223,12 +216,9 @@ describe('WebhookServer - Comprehensive Tests', () => {
   });
 
   describe('CORS Headers', () => {
-    it('should include CORS headers', async () => {
+    it('should not allow cross-origin browser access', async () => {
       const response = await fetch(`${baseUrl}/health`);
-
-      assert.ok(response.headers.get('access-control-allow-origin'));
-      assert.ok(response.headers.get('access-control-allow-methods'));
-      assert.ok(response.headers.get('access-control-allow-headers'));
+      assert.strictEqual(response.headers.get('access-control-allow-origin'), null);
     });
   });
 });
@@ -335,6 +325,11 @@ describe('WebhookServer - Disabled State', () => {
 
     await server.start();
     assert.strictEqual(server.server, null);
+  });
+
+  it('should refuse to start without a secret', async () => {
+    const server = new WebhookServer(new MockSyncEngine(), { port: 3103, enabled: true, secret: null });
+    await assert.rejects(server.start(), /WEBHOOK_SECRET/);
   });
 });
 

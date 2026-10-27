@@ -1,11 +1,12 @@
 import winston from 'winston';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import { fileURLToPath } from 'url';
 
 const { combine, timestamp, printf, colorize, errors, json } = winston.format;
 
-// Ensure logs directory exists
-const logsDir = join(process.cwd(), 'logs');
+// Log files live in the tool's own folder, never in the project you run it from
+const logsDir = process.env.N8N_SYNC_LOG_DIR || join(dirname(fileURLToPath(import.meta.url)), '..', 'logs');
 if (!existsSync(logsDir)) {
   mkdirSync(logsDir, { recursive: true });
 }
@@ -28,7 +29,9 @@ const logger = winston.createLogger({
   ),
   transports: [
     // Console transport with colors
+    // Logs go to stderr so stdout stays clean for --json / -o json output
     new winston.transports.Console({
+      stderrLevels: Object.keys(winston.config.npm.levels),
       format: combine(
         colorize(),
         consoleFormat,

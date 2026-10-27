@@ -1,5 +1,8 @@
-const API_URL = 'http://localhost:3001/api';
-const WS_URL = 'ws://localhost:3001';
+const API_URL = '/api';
+const WS_URL = `ws://${location.host}`;
+
+// Workflow names/ids come from n8n - never put them into HTML unescaped
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 let ws;
 let allWorkflows = [];
 let currentFilter = 'all';
@@ -82,11 +85,10 @@ async function loadWorkflows() {
 function setFilter(filter) {
     currentFilter = filter;
 
-    // Update button states
+    // Update button states (no implicit global `event` - it isn't guaranteed to exist)
     document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.remove('active');
+        btn.classList.toggle('active', btn.getAttribute('onclick') === `setFilter('${filter}')`);
     });
-    event.target.classList.add('active');
 
     filterWorkflows();
 }
@@ -133,12 +135,13 @@ function renderWorkflows(workflows) {
     }
     list.innerHTML = workflows.map(workflow => {
         const hasTrigger = hasTriggerNode(workflow);
+        const id = esc(workflow.id);
 
         return `
         <div class="workflow-item">
             <div class="workflow-info">
                 <div class="workflow-name">
-                    ${workflow.name}
+                    ${esc(workflow.name)}
                     ${hasTrigger
                 ? `<span class="badge ${workflow.active ? 'active' : 'inactive'}">
                             ${workflow.active ? 'Active' : 'Inactive'}
@@ -146,16 +149,16 @@ function renderWorkflows(workflows) {
                 : `<span class="badge manual">Manual</span>`
             }
                 </div>
-                <div class="workflow-meta">${workflow.id} • ${workflow.nodes?.length || 0} nodes</div>
+                <div class="workflow-meta">${id} • ${workflow.nodes?.length || 0} nodes</div>
             </div>
             <div class="workflow-actions">
                 ${hasTrigger
                 ? (workflow.active
-                    ? `<button class="btn btn-secondary" onclick="deactivateWorkflow('${workflow.id}')">Deactivate</button>`
-                    : `<button class="btn btn-secondary" onclick="activateWorkflow('${workflow.id}')">Activate</button>`)
+                    ? `<button class="btn btn-secondary" onclick="deactivateWorkflow('${id}')">Deactivate</button>`
+                    : `<button class="btn btn-secondary" onclick="activateWorkflow('${id}')">Activate</button>`)
                 : `<span style="color: #666; font-size: 11px;">Manual execution only</span>`
             }
-                <button class="btn btn-secondary" onclick="deleteWorkflow('${workflow.id}')">Delete</button>
+                <button class="btn btn-secondary" onclick="deleteWorkflow('${id}')">Delete</button>
             </div>
         </div>
         `;
@@ -206,7 +209,7 @@ async function triggerFullSync() {
 
 async function activateWorkflow(id) {
     try {
-        const response = await fetch(`${API_URL}/workflows/${id}/activate`, { method: 'POST' });
+        const response = await fetch(`${API_URL}/workflows/${encodeURIComponent(id)}/activate`, { method: 'POST' });
         const data = await response.json();
         if (!response.ok) {
             // Extract meaningful error message
@@ -225,7 +228,7 @@ async function activateWorkflow(id) {
 
 async function deactivateWorkflow(id) {
     try {
-        const response = await fetch(`${API_URL}/workflows/${id}/deactivate`, { method: 'POST' });
+        const response = await fetch(`${API_URL}/workflows/${encodeURIComponent(id)}/deactivate`, { method: 'POST' });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Deactivation failed');
         showToast('Workflow deactivated', 'success');
@@ -238,7 +241,7 @@ async function deactivateWorkflow(id) {
 async function deleteWorkflow(id) {
     if (!confirm('Are you sure you want to delete this workflow?')) return;
     try {
-        const response = await fetch(`${API_URL}/workflows/${id}`, { method: 'DELETE' });
+        const response = await fetch(`${API_URL}/workflows/${encodeURIComponent(id)}`, { method: 'DELETE' });
         const data = await response.json();
         if (!response.ok) throw new Error(data.error || 'Deletion failed');
         showToast('Workflow deleted', 'success');

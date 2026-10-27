@@ -9,6 +9,7 @@
  */
 
 import chalk from 'chalk';
+import { pathToFileURL } from 'url';
 import { N8nClient } from '../n8n-client.js';
 import { FileManager } from '../file-manager.js';
 import { config } from '../config.js';
@@ -273,7 +274,7 @@ export async function searchWorkflowsCommand(options = {}) {
 }
 
 // CLI execution
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
 
   const options = {
