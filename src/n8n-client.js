@@ -68,6 +68,13 @@ export class N8nClient {
     logger.debug(`API Request: ${method} ${path}`, { context: 'N8nClient', method, path });
 
     const response = await fetch(`${this.apiUrl}${path}`, options);
+    return this._parse(response);
+  }
+
+  /**
+   * Turn a fetch Response into data, or throw with n8n's message (+ status, issues).
+   */
+  async _parse(response) {
     const text = await response.text();
     let data = null;
     try {
@@ -80,6 +87,8 @@ export class N8nClient {
       const detail = data?.message || (typeof data === 'string' ? data : JSON.stringify(data));
       const error = new Error(`n8n API error: ${response.status} - ${detail}`);
       error.status = response.status;
+      error.apiMessage = data?.message;
+      if (Array.isArray(data?.issues)) error.issues = data.issues; // blocked package imports
       throw error;
     }
 
@@ -280,6 +289,37 @@ export class N8nClient {
   }
   async addDataTableColumn(id, column) {
     return this._request('POST', `/data-tables/${encodeURIComponent(id)}/columns`, column);
+  }
+
+  /**
+   * n8n packages (.n8np = gzipped tar). Export: agents/workflows/folders/projects.
+   * @returns {Promise<Buffer>}
+   */
+  async exportPackage(body) {
+    const response = await fetch(`${this.apiUrl}/n8n-packages/export`, {
+      method: 'POST',
+      headers: { 'X-N8N-API-KEY': this.apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) await this._parse(response); // throws
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  /**
+   * Import a package (multipart). Fields are sent as text; empty ones are left out.
+   */
+  async importPackage(buffer, fields = {}) {
+    const form = new FormData();
+    form.append('package', new Blob([new Uint8Array(buffer)]), 'agents.n8np');
+    for (const [key, value] of Object.entries(fields)) {
+      if (typeof value === 'string' && value !== '') form.append(key, value);
+    }
+    const response = await fetch(`${this.apiUrl}/n8n-packages/import`, {
+      method: 'POST',
+      headers: { 'X-N8N-API-KEY': this.apiKey },
+      body: form,
+    });
+    return this._parse(response);
   }
 
   /**

@@ -42,6 +42,7 @@ export const config = {
   // Paths
   paths: {
     workflowsDir: process.env.WORKFLOWS_DIR || './workflows',
+    agentsDir: process.env.AGENTS_DIR || './agents',
   },
 
   // Filtering
