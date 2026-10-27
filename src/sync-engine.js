@@ -422,7 +422,10 @@ export class SyncEngine {
           if (match) credentials[type] = { id: String(match.id), name: match.name };
           else {
             credentials[type] = ref;
-            warn(`node "${node.name}": credential "${ref?.name || ref?.id}" (${type}) not found in n8n - create it in the n8n UI`);
+            warn(
+              `node "${node.name}": credential "${ref?.name || ref?.id}" (${type}) not found in n8n - add it to credentials.n8n.json ` +
+                `and run \`credentials push\` (OAuth types: create it in the n8n UI)`,
+            );
           }
         }
         out = { ...out, credentials };

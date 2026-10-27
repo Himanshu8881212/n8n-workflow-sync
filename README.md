@@ -13,7 +13,11 @@ Below, `n8n-sync` means that `npx` command (or `node src/cli.js` in a clone). Te
 
 ## Setup
 
-1. `n8n-sync init` in an empty folder. It creates `flows/hello-webhook.json` plus its code file, `CLAUDE.md`, `.env.example`, `.gitignore` and `.github/workflows/n8n.yml`.
+1. `n8n-sync init` in an empty folder. It creates:
+   - `flows/hello-webhook.json` plus its code file
+   - `CLAUDE.md`, `.env.example`, `.gitignore`
+   - `.github/workflows/n8n.yml` (the GitHub Action)
+   - `.claude/settings.json` plus a hook that stops Claude from reading secrets
 2. `cp .env.example .env`, then set `N8N_API_URL` and `N8N_API_KEY` (n8n → Settings → n8n API → Create API key).
 3. For prod, add `.env.prod` and use `n8n-sync --env prod <command>`.
 
@@ -29,7 +33,10 @@ Config is per project: `./.env.<env>` → `./.env` → the tool's own `.env`. Re
 | `validate [--strict]` | Offline checks: connections, duplicate names, missing fields, triggers |
 | `run "<name>" [--data json]` | Call an active webhook flow; prints the response and execution result |
 | `executions "<name>" [--failed]` | Recent runs with the failing node and error |
-| `list`, `search`, `activate`, `deactivate`, `credentials` | |
+| `credentials [list]` | Credential names, types and IDs (never secrets) |
+| `credentials push [--dry-run]` | Create/update credentials from `flows/credentials.n8n.json`. Secrets come from env vars |
+| `credentials test [names]` | n8n tests each credential: ok / failed / untestable |
+| `list`, `search`, `activate`, `deactivate` | |
 | `delete "<name>" --yes` | Delete in n8n and locally (unpublishes first, keeps a backup) |
 | `prune --yes` | Delete n8n flows whose file you deleted (only flows this folder synced) |
 | `data-tables pull\|push` | Data table schemas ↔ `flows/data-tables.n8n.json`. Rows are never synced |
@@ -54,6 +61,38 @@ The same files work on every instance:
 - **Credentials:** matched by **type and name**. Create one with the same name on each instance (secrets never go in files). Push warns if one is missing.
 - **Sub-workflows:** Execute Workflow targets are matched by **workflow name**. Push sends sub-workflows before their callers, and `--activate` publishes them first (n8n 2.x requires this).
 
+## Credentials without secrets in files (Bitwarden recommended)
+
+`flows/credentials.n8n.json` is committed. It lists what your flows need, and every secret is a **reference to an environment variable**:
+
+```json
+[
+  { "name": "OpenAI",          "type": "openAiApi",      "data": { "apiKey": "{{env.OPENAI_API_KEY}}" } },
+  { "name": "Partner API Key", "type": "httpHeaderAuth", "data": { "name": "X-Api-Key", "value": "{{env.PARTNER_API_KEY}}" } }
+]
+```
+
+Keep the values in **Bitwarden Secrets Manager**, using the same names as the variables, and push through it:
+
+```bash
+bws run -- n8n-sync credentials push        # creates missing, updates existing (merges, so OAuth tokens survive)
+n8n-sync credentials test                   # n8n checks each one against the real service
+```
+
+How the secrets are protected:
+- They exist only inside the `bws run` process. Nothing is printed, logged or written to disk, and any secret n8n echoes back in an error is masked.
+- n8n's API never returns secret data, so `list`, `test`, `pull` and backups can't leak them either.
+- `--dry-run` checks the file against n8n's schema for each credential type (missing or unknown fields) and lists which environment variables are missing, by name only.
+- On push, credentials are matched by type and name on each instance, so `bws run -- n8n-sync --env prod credentials push` sets up prod from the same file. In GitHub Actions, pass the values as repository secrets instead.
+- Works with any secret manager that injects environment variables: `op run --env-file=.env -- …` (1Password), `infisical run -- …`, `dotenvx run -- …`.
+- OAuth credentials (Google, Microsoft, …) are created too, but still need one "Connect" click in the n8n UI.
+
+**Keeping Claude away from secrets.** In a project made by `init`, Claude asks *you* to run `credentials push`, so the secret manager's token never sits in Claude's shell. That is the actual guarantee. On top of that, `.claude/settings.json` adds:
+- deny rules for reading `.env*` and for `printenv`, `env`, `bws secret`, `op read`. These hold even in bypass-permissions mode.
+- a PreToolUse hook that also catches wrapped forms like `bws run -- printenv` or `sh -c 'cat .env'`.
+
+Both layers match patterns, so they reduce the risk but don't eliminate it on their own.
+
 ## Code in its own files
 
 `"jsCode": "@file:./flow.node.js"` (also `pythonCode`) is inlined on push. Pull writes n8n's version back into the `.js` file. `pull --split-code` converts inline code into files. Diffs and reviews then show real code.
@@ -69,7 +108,7 @@ It needs the repo secrets `N8N_API_URL` (reachable from GitHub) and `N8N_API_KEY
 ## Claude Code skill and MCP server
 
 - **Skill:** `ln -s "$PWD/skill/n8n-sync" ~/.claude/skills/n8n-sync`, then ask *"make a flow that … and push it"*.
-- **MCP server** (Claude Desktop or any MCP client). It provides 13 tools: list, push, pull, validate, diff, activate, deactivate, delete, run, executions, credentials, data tables, variables.
+- **MCP server** (Claude Desktop or any MCP client). It provides 15 tools: list, push, pull, validate, diff, activate, deactivate, delete, run, executions, list/push/test credentials, data tables, variables. To push credentials over MCP, start the server under your secret manager (`bws run -- npx … mcp`).
 
 ```json
 { "mcpServers": { "n8n-sync": {
@@ -80,12 +119,12 @@ It needs the repo secrets `N8N_API_URL` (reachable from GitHub) and `N8N_API_KEY
 ## Limits
 
 - n8n's public API can't start Manual or Schedule triggers, so `run` only works for webhook flows. For the others, use `executions` after they've run.
-- Credential secrets can't be read or pushed (by design). Projects and folders need an n8n license or have no public API, so they aren't synced.
+- Credential secrets are never read back from n8n (by design). Projects and folders need an n8n license or have no public API, so they aren't synced.
 - Validation checks the structure only. A wrong parameter value only shows up at run time, so use `run` or `executions`.
 - Backups are never rotated. Delete `flows/.n8n-sync/backups/` when it gets big.
 
 ## Development
 
 ```bash
-npm install && npm test     # 43 tests; CI runs them on Node 20/22/24
+npm install && npm test     # 50 tests; CI runs them on Node 20/22/24
 ```

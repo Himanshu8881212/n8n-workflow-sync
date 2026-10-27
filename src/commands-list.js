@@ -12,7 +12,7 @@ export const COMMANDS = {
   prune: ['commands/prune-workflows.js', 'Delete n8n workflows whose local file you deleted (--yes)'],
   run: ['commands/run-workflow.js', "Call a webhook flow and show the execution result"],
   executions: ['commands/executions.js', 'Show recent runs and their errors'],
-  credentials: ['commands/list-credentials.js', 'List credentials (names/types/ids, no secrets)'],
+  credentials: ['commands/credentials.js', 'credentials list|push|test - secrets come from env vars, never printed'],
   'data-tables': ['commands/project-resources.js', 'Sync data table schemas: data-tables pull|push'],
   variables: ['commands/project-resources.js', 'Sync variables: variables pull|push (licensed n8n)'],
   init: ['commands/init-project.js', 'Set up a flows project (example, CLAUDE.md, GitHub Action)'],

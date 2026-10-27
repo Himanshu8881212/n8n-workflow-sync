@@ -201,6 +201,32 @@ export class N8nClient {
   }
 
   /**
+   * JSON schema of a credential type's fields (field names, which are required)
+   */
+  async getCredentialSchema(type) {
+    return this._request('GET', `/credentials/schema/${encodeURIComponent(type)}`);
+  }
+
+  async createCredential(name, type, data) {
+    return this._request('POST', '/credentials', { name, type, data });
+  }
+
+  /**
+   * Update a credential's data. isPartialData merges with what's stored, so
+   * fields not in `data` (e.g. OAuth tokens) are kept.
+   */
+  async updateCredential(id, data) {
+    return this._request('PATCH', `/credentials/${encodeURIComponent(id)}`, { data, isPartialData: true });
+  }
+
+  /**
+   * Ask n8n to test a credential with its stored data -> { status: 'OK'|'Error', message }
+   */
+  async testCredential(id) {
+    return this._request('POST', `/credentials/${encodeURIComponent(id)}/test`);
+  }
+
+  /**
    * List executions, newest first.
    * @param {Object} opts - { workflowId, status, limit, includeData }
    */

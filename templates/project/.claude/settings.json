@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Bash(printenv *)",
+      "Bash(env)",
+      "Bash(bws secret *)",
+      "Bash(op read *)",
+      "Bash(op item get *)",
+      "Bash(op inject *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/block-secrets.mjs\"" }]
+      }
+    ]
+  }
+}

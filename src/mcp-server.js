@@ -24,6 +24,7 @@ import { SyncEngine, isWorkflow } from './sync-engine.js';
 import { N8nClient } from './n8n-client.js';
 import { FileManager } from './file-manager.js';
 import { validateWorkflow } from './validator.js';
+import { pushCredentials, testCredentials } from './credentials.js';
 
 logger.level = process.env.LOG_LEVEL || 'warn';
 
@@ -171,6 +172,29 @@ tool(
   'Recent runs of a workflow with status and error details (which node failed and why).',
   { workflow, limit: z.number().int().min(1).max(50).optional(), failed_only: z.boolean().optional() },
   ({ workflow: w, limit, failed_only }) => engineFor().getExecutions(w, { limit: limit || 5, status: failed_only ? 'error' : undefined }),
+  { readOnlyHint: true },
+);
+
+tool(
+  'push_credentials',
+  'Create/update n8n credentials from <directory>/credentials.n8n.json. Secret values are {{env.NAME}} references filled from ' +
+    'environment variables (the MCP server must be started by a secret manager, e.g. `bws run -- ...`). Never returns secret values. ' +
+    'Never ask the user to paste secrets into the chat - ask them to add them to their secret manager.',
+  { directory, dry_run: z.boolean().optional().describe('Check file, env vars and fields only') },
+  ({ directory: d, dry_run }) => {
+    validateConfig();
+    return pushCredentials(new N8nClient(), join(dirOf(d), 'credentials.n8n.json'), { dryRun: dry_run });
+  },
+);
+
+tool(
+  'test_credentials',
+  'Have n8n test credentials with their stored data (ok / failed + message). Never returns secret values.',
+  { names: z.array(z.string()).optional().describe('Credential names or ids; default all') },
+  async ({ names }) => {
+    validateConfig();
+    return testCredentials(new N8nClient(), names || []);
+  },
   { readOnlyHint: true },
 );
 

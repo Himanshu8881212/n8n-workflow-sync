@@ -38,6 +38,8 @@ Add `--json` to any command for machine-readable output (logs go to stderr).
 | `executions "<name>" [-n 5] [--failed]` | Recent runs with errors |
 | `list [--active-only] [-o json]`, `activate`/`deactivate "<name>"` | |
 | `credentials [--type t]` | Credential ids/names/types (no secrets) |
+| `credentials push [--dry-run]` | Create/update credentials from `flows/credentials.n8n.json`; secrets from env vars |
+| `credentials test [names]` | n8n tests each credential: ok / failed / untestable |
 | `delete "<name>" ... --yes` | Delete in n8n + local file (backup kept). Without `--yes` = preview |
 | `prune --yes` | Delete n8n flows whose local file was deleted (only flows this folder synced) |
 | `data-tables pull\|push`, `variables pull\|push` | `flows/data-tables.n8n.json` (schemas only), `flows/variables.n8n.json` (licensed n8n) |
@@ -45,7 +47,14 @@ Add `--json` to any command for machine-readable output (logs go to stderr).
 ## Rules
 
 - **CONFLICT on push** = someone edited it in n8n since the last sync. Pull, re-apply your change, push. **CONFLICT on pull** = local edits not pushed yet. Only use `--force` when the user agrees to overwrite; a backup is kept in `flows/.n8n-sync/backups/`.
-- **Credentials** are created in the n8n UI, never in files. Get them with `credentials`, then reference in a node: `"credentials": { "<type>": { "id": "<id>", "name": "<name>" } }`. They're matched by type+name on each instance, so the same file works on dev and prod. If push warns a credential is missing, tell the user exactly which one to create.
+- **Secrets never pass through you.** Never ask the user to paste a key/password/token into the chat, never write a real secret into any file, never read `.env*` files or run `printenv`, `env`, `bws secret …`, `op read …` (projects from `init` block these with deny rules + a hook).
+- **Credentials as code:** add the credential to `flows/credentials.n8n.json` with secret fields as `{{env.NAME}}`:
+  `{ "name": "OpenAI", "type": "openAiApi", "data": { "apiKey": "{{env.OPENAI_API_KEY}}" } }`
+  1. `credentials push --dry-run` — fixes field names (it lists the type's real fields); missing env vars are reported by name only.
+  2. Tell the user: "add `OPENAI_API_KEY` to Bitwarden Secrets Manager, then run `! bws run -- n8n-sync credentials push`" (1Password: `op run --env-file=.env -- …`). Let **the user** run it, so the secret-manager token is never in your shell.
+  3. `credentials test` (ok / failed with n8n's message / untestable for types n8n can't test), then `run` the flow.
+  OAuth types (Google, Microsoft, …) need one "Connect" click in the n8n UI after push — say so.
+- **Referencing credentials in nodes:** `"credentials": { "<type>": { "id": "<id>", "name": "<name>" } }` with ids from `credentials`. Matched by type + name on each instance, so the same flow works on dev and prod.
 - **Sub-workflows** (Execute Workflow node): `"workflowId": { "__rl": true, "value": "<id>", "mode": "list", "cachedResultName": "<sub-workflow name>" }`. Matched by name per instance; push sub-workflows before callers (push does this automatically for a folder).
 - **Activation** needs an automatic trigger (Webhook, Schedule, app trigger, or Execute Workflow Trigger for sub-workflows). Manual Trigger only → can't activate; say so, don't "fix" it. Webhook paths must be unique across active flows.
 - **Tags**: `"tags": ["a","b"]` set by name; omit to leave n8n's tags alone; `[]` clears.
