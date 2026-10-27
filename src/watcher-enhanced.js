@@ -1,5 +1,6 @@
 import chokidar from 'chokidar';
-import { join, basename } from 'path';
+import { join, basename, dirname, relative, sep } from 'path';
+import { readdirSync, readFileSync } from 'fs';
 import chalk from 'chalk';
 import PQueue from 'p-queue';
 import { Logger } from './logger-enhanced.js';
@@ -62,15 +63,6 @@ export class EnhancedFileWatcher {
       lastSync: null,
     };
 
-    // Ignore patterns
-    this.ignorePatterns = [
-      '**/node_modules/**',
-      '**/.git/**',
-      '**/.sync-state.json',
-      '**/*.log',
-      '**/*.tmp',
-      '**/.*', // Hidden files
-    ];
   }
 
   /**
@@ -90,7 +82,7 @@ export class EnhancedFileWatcher {
     });
 
     this.watcher = chokidar.watch(this.workflowsDir, {
-      ignored: this.ignorePatterns,
+      ignored: (path) => this.isIgnored(path),
       persistent: true,
       ignoreInitial: true,
       awaitWriteFinish: {
@@ -121,6 +113,14 @@ export class EnhancedFileWatcher {
   handleFileChange(eventType, filePath) {
     const fileName = basename(filePath);
 
+    // A Code node's .js/.py file changed: re-push the workflow(s) that reference it
+    if (/\.(js|py)$/.test(fileName)) {
+      if (eventType !== 'unlink') {
+        for (const wf of this.workflowsUsingCodeFile(filePath)) this.handleFileChange('change', wf);
+      }
+      return;
+    }
+
     // Only watch JSON and YAML files
     if (!fileName.endsWith('.json') && !fileName.endsWith('.yaml') && !fileName.endsWith('.yml')) {
       return;
@@ -140,6 +140,37 @@ export class EnhancedFileWatcher {
     }, this.debounceMs);
 
     this.debounceTimers.set(filePath, timer);
+  }
+
+  /**
+   * Hidden files/folders (e.g. .n8n-sync/ with state + backups), node_modules,
+   * logs and temp files are never synced. Globs like '**\/.*' only match the last
+   * path segment, so files *inside* hidden folders slipped through before.
+   */
+  isIgnored(path) {
+    const rel = relative(this.workflowsDir, path);
+    if (!rel || rel.startsWith('..')) return false;
+    const parts = rel.split(sep);
+    return parts.some((p) => p.startsWith('.') || p === 'node_modules') || /\.(log|tmp)$/.test(rel);
+  }
+
+  /**
+   * Workflow files in the same folder whose JSON/YAML mentions `@file:...<name>`
+   */
+  workflowsUsingCodeFile(codePath) {
+    const dir = dirname(codePath);
+    const name = basename(codePath);
+    try {
+      return readdirSync(dir)
+        .filter((f) => /\.(json|ya?ml)$/.test(f) && !f.endsWith('.n8n.json'))
+        .map((f) => join(dir, f))
+        .filter((f) => {
+          const text = readFileSync(f, 'utf-8');
+          return text.includes('@file:') && text.includes(name);
+        });
+    } catch {
+      return [];
+    }
   }
 
   /**

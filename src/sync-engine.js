@@ -537,6 +537,11 @@ export class SyncEngine {
    * Called by the file watcher when a file is added or changed.
    */
   async syncFile(filePath) {
+    // Never push sync state, backups or config files, whatever the caller watched
+    const key = this._fileKey(filePath);
+    if (key.split('/').some((p) => p.startsWith('.')) || key.endsWith('.n8n.json')) {
+      return { file: key, action: 'skipped', reason: 'internal file (hidden folder or *.n8n.json)' };
+    }
     const result = await this.pushFile(filePath);
     if (result.action === 'conflict' || result.action === 'invalid') {
       logger.warn(`Not pushed (${result.action}): ${result.file} - ${result.reason || result.errors.join('; ')}`, { context: 'SyncEngine' });
