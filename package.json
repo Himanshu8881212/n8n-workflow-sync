@@ -1,7 +1,7 @@
 {
   "name": "n8n-workflow-sync",
   "version": "2.0.0",
-  "description": "Bidirectional auto-sync service for n8n workflows with local Git repository",
+  "description": "Push local n8n workflow files to n8n (and activate them), pull n8n workflows to files",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
@@ -23,17 +23,8 @@
     "completion:zsh": "node src/commands/completion.js zsh",
     "completion:fish": "node src/commands/completion.js fish",
     "version": "node src/commands/version.js",
-    "test": "node --test tests/**/*.test.js",
-    "test:unit": "node --test tests/unit/**/*.test.js",
-    "test:integration": "node --test tests/integration/**/*.test.js",
-    "test:webhook": "node --test tests/webhook-comprehensive.test.js",
-    "test:watch": "node --test --watch tests/**/*.test.js",
-    "test:coverage": "c8 npm run test",
-    "lint": "eslint src/ tests/",
-    "lint:fix": "eslint src/ tests/ --fix",
-    "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\"",
-    "format:check": "prettier --check \"src/**/*.js\" \"tests/**/*.js\"",
-    "validate": "npm run lint && npm run test"
+    "test": "node --test tests/",
+    "test:webhook": "node --test tests/webhook-comprehensive.test.js"
   },
   "keywords": [
     "n8n",
@@ -48,27 +39,27 @@
   "author": "SynthEngyne",
   "license": "MIT",
   "dependencies": {
-    "chokidar": "^3.6.0",
-    "dotenv": "^16.4.5",
-    "node-fetch": "^3.3.2",
     "chalk": "^5.3.0",
-    "ora": "^8.0.1",
-    "minimatch": "^10.0.1",
-    "fast-json-patch": "^3.1.1",
-    "js-yaml": "^4.1.0",
+    "chokidar": "^3.6.0",
     "commander": "^12.0.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "js-yaml": "^4.1.0",
+    "minimatch": "^10.0.1",
+    "node-fetch": "^3.3.2",
+    "ora": "^8.0.1",
+    "p-queue": "^8.0.1",
     "winston": "^3.11.0",
-    "p-retry": "^6.2.0",
-    "p-queue": "^8.0.1"
+    "ws": "^8.18.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0",
-    "eslint": "^8.57.0",
-    "prettier": "^3.2.5",
-    "c8": "^9.1.0",
-    "husky": "^9.0.11"
+    "nodemon": "^3.1.0"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "bin": {
+    "n8n-sync-push": "src/push-to-n8n.js",
+    "n8n-sync-pull": "src/pull-from-n8n.js"
   }
 }

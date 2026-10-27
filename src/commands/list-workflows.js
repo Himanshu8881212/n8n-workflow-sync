@@ -89,7 +89,7 @@ async function main() {
     // Validate configuration
     validateConfig();
 
-    console.log(chalk.blue('📋 Fetching workflows from n8n...\n'));
+    console.error(chalk.blue('📋 Fetching workflows from n8n...\n'));
 
     // Create client
     const client = new N8nClient();

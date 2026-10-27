@@ -1,7 +1,7 @@
 import express from 'express';
-import cors from 'cors';
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { N8nClient } from './n8n-client.js';
 import { SyncEngine } from './sync-engine.js';
 import { config } from './config.js';
@@ -12,10 +12,14 @@ import { defaultLogger as logger } from './logger-enhanced.js';
  */
 export class GUIServer {
   constructor(options = {}) {
-    this.port = options.port || 3001;
+    this.port = options.port || config.gui.port;
+    this.host = options.host || config.gui.host;
     this.app = express();
     this.server = createServer(this.app);
-    this.wss = new WebSocketServer({ server: this.server });
+    this.wss = new WebSocketServer({
+      server: this.server,
+      verifyClient: ({ req }) => this.isTrustedRequest(req),
+    });
 
     this.client = new N8nClient(
       config.n8n.apiUrl,
@@ -39,10 +43,26 @@ export class GUIServer {
     this.setupWebSocket();
   }
 
+  /**
+   * Block DNS-rebinding (Host) and cross-site requests (Origin). The GUI has
+   * no login, so only same-origin pages on this machine may drive it.
+   */
+  isTrustedRequest(req) {
+    const host = req.headers.host || '';
+    const hostname = host.replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+    const localNames = ['localhost', '127.0.0.1', '::1', this.host];
+    if (!localNames.includes(hostname)) return false;
+    const origin = req.headers.origin;
+    return !origin || origin === `http://${host}`;
+  }
+
   setupMiddleware() {
-    this.app.use(cors());
+    this.app.use((req, res, next) => {
+      if (this.isTrustedRequest(req)) return next();
+      res.status(403).json({ error: 'Forbidden: cross-origin request' });
+    });
     this.app.use(express.json());
-    this.app.use(express.static('public'));
+    this.app.use(express.static(fileURLToPath(new URL('../public', import.meta.url))));
   }
 
   setupRoutes() {
@@ -128,7 +148,7 @@ export class GUIServer {
         this.stats.syncStatus = 'pushing';
         this.broadcast({ type: 'stats', data: { status: 'pushing' } });
 
-        const result = await this.syncEngine.pushToN8n();
+        const result = await this.syncEngine.pushToN8n({ activate: req.body?.activate === true });
 
         // Update workflow count
         const workflows = await this.client.listWorkflows();
@@ -162,7 +182,7 @@ export class GUIServer {
         this.stats.syncStatus = 'syncing';
         this.broadcast({ type: 'stats', data: { status: 'syncing' } });
 
-        const result = await this.syncEngine.fullSync();
+        const result = await this.syncEngine.fullSync({ activate: req.body?.activate === true });
 
         // Update workflow count
         const workflows = await this.client.listWorkflows();
@@ -248,11 +268,10 @@ export class GUIServer {
 
   async start() {
     return new Promise((resolve) => {
-      this.server.listen(this.port, () => {
+      this.server.listen(this.port, this.host, () => {
         logger.info('GUI server started', {
           context: 'GUIServer',
-          port: this.port,
-          url: `http://localhost:${this.port}`,
+          url: `http://${this.host}:${this.port}`,
         });
         resolve();
       });
@@ -271,11 +290,11 @@ export class GUIServer {
 }
 
 // Start server if run directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const server = new GUIServer({ port: 3001 });
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const server = new GUIServer();
   await server.start();
 
-  console.log('\n🎨 GUI Dashboard running at: http://localhost:3001\n');
+  console.log(`\n🎨 GUI Dashboard running at: http://${server.host}:${server.port}\n`);
 
   // Graceful shutdown
   process.on('SIGINT', async () => {

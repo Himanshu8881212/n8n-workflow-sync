@@ -2,21 +2,37 @@
 
 /**
  * n8n API Client
- * 
- * Handles all communication with the n8n API.
- * 
+ *
+ * Handles all communication with the n8n public API.
+ *
  * @module n8n-client
  */
 
 import { winstonLogger as logger } from './logger-enhanced.js';
 import { config } from './config.js';
 
+// Fields the public API accepts on create/update. Anything else (id, active,
+// tags, createdAt, ...) makes n8n reject the request.
+const WRITABLE_FIELDS = ['name', 'nodes', 'connections', 'settings', 'staticData'];
+
+/**
+ * Keep only the fields n8n accepts when creating/updating a workflow.
+ */
+export function toApiBody(workflow) {
+  const body = {};
+  for (const key of WRITABLE_FIELDS) {
+    if (workflow[key] !== undefined && workflow[key] !== null) body[key] = workflow[key];
+  }
+  body.settings = body.settings || {};
+  return body;
+}
+
 /**
  * n8n API Client
  */
 export class N8nClient {
   constructor(apiUrl = null, apiKey = null) {
-    this.apiUrl = apiUrl || config.n8n.apiUrl;
+    this.apiUrl = (apiUrl || config.n8n.apiUrl).replace(/\/+$/, '');
     this.apiKey = apiKey || config.n8n.apiKey;
 
     if (!this.apiUrl) {
@@ -26,7 +42,7 @@ export class N8nClient {
       throw new Error('N8N_API_KEY is required');
     }
 
-    logger.info('N8nClient initialized', {
+    logger.debug('N8nClient initialized', {
       context: 'N8nClient',
       apiUrl: this.apiUrl,
     });
@@ -36,57 +52,55 @@ export class N8nClient {
    * Make HTTP request to n8n API
    */
   async _request(method, path, body = null) {
-    const url = `${this.apiUrl}${path}`;
-    const headers = {
-      'X-N8N-API-KEY': this.apiKey,
-      'Content-Type': 'application/json',
-    };
-
     const options = {
       method,
-      headers,
+      headers: {
+        'X-N8N-API-KEY': this.apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
     };
 
     if (body) {
       options.body = JSON.stringify(body);
     }
 
-    logger.debug(`API Request: ${method} ${path}`, {
-      context: 'N8nClient',
-      method,
-      path,
-    });
+    logger.debug(`API Request: ${method} ${path}`, { context: 'N8nClient', method, path });
 
+    const response = await fetch(`${this.apiUrl}${path}`, options);
+    const text = await response.text();
+    let data = null;
     try {
-      const response = await fetch(url, options);
-      const data = await response.json();
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
 
-      if (!response.ok) {
-        throw new Error(`n8n API error: ${response.status} - ${JSON.stringify(data)}`);
-      }
-
-      return data;
-    } catch (error) {
-      logger.error('API request failed', {
-        context: 'N8nClient',
-        method,
-        path,
-        error: error.message,
-      });
+    if (!response.ok) {
+      const detail = data?.message || (typeof data === 'string' ? data : JSON.stringify(data));
+      const error = new Error(`n8n API error: ${response.status} - ${detail}`);
+      error.status = response.status;
       throw error;
     }
+
+    return data;
   }
 
   /**
-   * List all workflows
+   * List all workflows (follows pagination)
    */
   async listWorkflows() {
-    logger.info('Fetching workflows from n8n', { context: 'N8nClient' });
+    const workflows = [];
+    let cursor = null;
 
-    const data = await this._request('GET', '/workflows');
-    const workflows = data.data || [];
+    do {
+      const query = `?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const data = await this._request('GET', `/workflows${query}`);
+      workflows.push(...(data?.data || []));
+      cursor = data?.nextCursor;
+    } while (cursor);
 
-    logger.info(`Fetched ${workflows.length} workflows`, {
+    logger.debug(`Fetched ${workflows.length} workflows`, {
       context: 'N8nClient',
       count: workflows.length,
     });
@@ -98,30 +112,15 @@ export class N8nClient {
    * Get a single workflow by ID
    */
   async getWorkflow(id) {
-    logger.debug(`Fetching workflow ${id}`, { context: 'N8nClient', id });
-
-    const workflow = await this._request('GET', `/workflows/${id}`);
-
-    return workflow;
+    return this._request('GET', `/workflows/${encodeURIComponent(id)}`);
   }
 
   /**
    * Create a new workflow
    */
   async createWorkflow(workflow) {
-    logger.info(`Creating workflow: ${workflow.name}`, {
-      context: 'N8nClient',
-      name: workflow.name,
-    });
-
-    const created = await this._request('POST', '/workflows', workflow);
-
-    logger.info(`Created workflow: ${created.name} (${created.id})`, {
-      context: 'N8nClient',
-      id: created.id,
-      name: created.name,
-    });
-
+    const created = await this._request('POST', '/workflows', toApiBody(workflow));
+    logger.info(`Created workflow: ${created.name} (${created.id})`, { context: 'N8nClient' });
     return created;
   }
 
@@ -129,20 +128,8 @@ export class N8nClient {
    * Update an existing workflow
    */
   async updateWorkflow(id, workflow) {
-    logger.info(`Updating workflow: ${workflow.name} (${id})`, {
-      context: 'N8nClient',
-      id,
-      name: workflow.name,
-    });
-
-    const updated = await this._request('PUT', `/workflows/${id}`, workflow);
-
-    logger.info(`Updated workflow: ${updated.name}`, {
-      context: 'N8nClient',
-      id: updated.id,
-      name: updated.name,
-    });
-
+    const updated = await this._request('PUT', `/workflows/${encodeURIComponent(id)}`, toApiBody(workflow));
+    logger.info(`Updated workflow: ${updated.name} (${id})`, { context: 'N8nClient' });
     return updated;
   }
 
@@ -150,28 +137,16 @@ export class N8nClient {
    * Delete a workflow
    */
   async deleteWorkflow(id) {
-    logger.info(`Deleting workflow: ${id}`, { context: 'N8nClient', id });
-
-    await this._request('DELETE', `/workflows/${id}`);
-
-    logger.info(`Deleted workflow: ${id}`, { context: 'N8nClient', id });
+    await this._request('DELETE', `/workflows/${encodeURIComponent(id)}`);
+    logger.info(`Deleted workflow: ${id}`, { context: 'N8nClient' });
   }
 
   /**
-   * Activate a workflow
+   * Activate a workflow (needs a trigger/webhook/poller node)
    */
   async activateWorkflow(id) {
-    logger.info(`Activating workflow: ${id}`, { context: 'N8nClient', id });
-
-    // Use the dedicated activate endpoint
-    const updated = await this._request('POST', `/workflows/${id}/activate`);
-
-    logger.info(`Activated workflow: ${updated.name}`, {
-      context: 'N8nClient',
-      id: updated.id,
-      name: updated.name,
-    });
-
+    const updated = await this._request('POST', `/workflows/${encodeURIComponent(id)}/activate`);
+    logger.info(`Activated workflow: ${updated.name} (${id})`, { context: 'N8nClient' });
     return updated;
   }
 
@@ -179,18 +154,38 @@ export class N8nClient {
    * Deactivate a workflow
    */
   async deactivateWorkflow(id) {
-    logger.info(`Deactivating workflow: ${id}`, { context: 'N8nClient', id });
-
-    // Use the dedicated deactivate endpoint
-    const updated = await this._request('POST', `/workflows/${id}/deactivate`);
-
-    logger.info(`Deactivated workflow: ${updated.name}`, {
-      context: 'N8nClient',
-      id: updated.id,
-      name: updated.name,
-    });
-
+    const updated = await this._request('POST', `/workflows/${encodeURIComponent(id)}/deactivate`);
+    logger.info(`Deactivated workflow: ${updated.name} (${id})`, { context: 'N8nClient' });
     return updated;
+  }
+
+  /**
+   * List all tags (follows pagination)
+   */
+  async listTags() {
+    const tags = [];
+    let cursor = null;
+    do {
+      const query = `?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
+      const data = await this._request('GET', `/tags${query}`);
+      tags.push(...(data?.data || []));
+      cursor = data?.nextCursor;
+    } while (cursor);
+    return tags;
+  }
+
+  /**
+   * Create a tag
+   */
+  async createTag(name) {
+    return this._request('POST', '/tags', { name });
+  }
+
+  /**
+   * Replace a workflow's tags (tag ids)
+   */
+  async setWorkflowTags(id, tagIds) {
+    return this._request('PUT', `/workflows/${encodeURIComponent(id)}/tags`, tagIds.map((tagId) => ({ id: tagId })));
   }
 
   /**
@@ -202,17 +197,18 @@ export class N8nClient {
   }
 
   /**
-   * Check if workflow exists
+   * Check if workflow exists. Only a 404 means "no"; other errors propagate
+   * so a network blip doesn't turn an update into a duplicate create.
    */
   async workflowExists(id) {
     try {
       await this.getWorkflow(id);
       return true;
     } catch (error) {
-      return false;
+      if (error.status === 404 || error.status === 400) return false;
+      throw error;
     }
   }
 }
 
 export default N8nClient;
-

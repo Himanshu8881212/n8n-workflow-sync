@@ -5,8 +5,8 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load environment variables
-dotenv.config({ path: join(__dirname, '../.env') });
+// Load .env from the project root (works no matter which directory you run from)
+dotenv.config({ path: join(__dirname, '../.env'), quiet: true });
 
 export const config = {
   // n8n Configuration
@@ -17,33 +17,15 @@ export const config = {
 
   // Sync Configuration
   sync: {
-    intervalMs: parseInt(process.env.SYNC_INTERVAL_MS) || 5000,
     watchEnabled: process.env.WATCH_ENABLED === 'true',
-    autoPush: process.env.AUTO_PUSH === 'true',
     autoPull: process.env.AUTO_PULL === 'true',
     debounceMs: parseInt(process.env.DEBOUNCE_MS) || 1000,
-    batchSize: parseInt(process.env.BATCH_SIZE) || 10,
-    maxRetries: parseInt(process.env.MAX_RETRIES) || 3,
     dryRun: process.env.DRY_RUN === 'true',
   },
 
   // Paths
   paths: {
-    workflowsDir: process.env.WORKFLOWS_DIR || '../Generation Methods',
-    syncStateFile: process.env.SYNC_STATE_FILE || '.sync-state.json',
-    rootDir: join(__dirname, '../../..'),
-  },
-
-  // Conflict Resolution
-  conflict: {
-    strategy: process.env.CONFLICT_STRATEGY || 'newest_wins',
-    // Options: local_wins, remote_wins, newest_wins, manual
-  },
-
-  // Git Integration
-  git: {
-    autoCommit: process.env.AUTO_COMMIT === 'true',
-    commitMessagePrefix: process.env.COMMIT_MESSAGE_PREFIX || '[Auto-Sync]',
+    workflowsDir: process.env.WORKFLOWS_DIR || './workflows',
   },
 
   // Filtering
@@ -52,16 +34,17 @@ export const config = {
     includePatterns: (process.env.INCLUDE_PATTERNS || '**/*.json,**/*.yaml,**/*.yml').split(','),
   },
 
-  // Logging
-  logging: {
-    level: process.env.LOG_LEVEL || 'info',
-  },
-
   // Webhook Server
   webhook: {
     enabled: process.env.WEBHOOK_ENABLED === 'true',
     port: parseInt(process.env.WEBHOOK_PORT) || 3000,
     secret: process.env.WEBHOOK_SECRET || null,
+  },
+
+  // GUI Server
+  gui: {
+    host: process.env.GUI_HOST || '127.0.0.1',
+    port: parseInt(process.env.GUI_PORT) || 3001,
   },
 };
 
@@ -73,13 +56,16 @@ export const config = {
 export function validateConfig() {
   const errors = [];
 
-  // Check required fields
-  if (!process.env.N8N_API_URL && !config.n8n.apiUrl) {
+  if (!config.n8n.apiUrl) {
     errors.push('N8N_API_URL is required');
   }
 
-  if (!process.env.N8N_API_KEY && !config.n8n.apiKey) {
-    errors.push('N8N_API_KEY is required');
+  if (!config.n8n.apiKey) {
+    errors.push('N8N_API_KEY is required (n8n → Settings → n8n API → Create API key)');
+  }
+
+  if (config.webhook.enabled && !config.webhook.secret) {
+    errors.push('WEBHOOK_SECRET is required when WEBHOOK_ENABLED=true');
   }
 
   if (errors.length > 0) {
@@ -88,4 +74,3 @@ export function validateConfig() {
 
   return true;
 }
-

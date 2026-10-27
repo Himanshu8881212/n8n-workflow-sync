@@ -44,15 +44,16 @@ class SyncService {
         dryRun: config.sync.dryRun,
       });
 
-      // Start file watcher if enabled
+      // Initial pull first, so the watcher doesn't push back what was just pulled
+      if (config.sync.autoPull) {
+        logger.info('Running initial pull sync', { context: 'SyncService' });
+        await this.syncEngine.pullFromN8n();
+      }
+
+      // Start file watcher if enabled (local change -> push to n8n)
       if (config.sync.watchEnabled) {
         logger.info('Starting file watcher', { context: 'SyncService' });
-        this.watcher = new Watcher(this.syncEngine, {
-          workflowsDir: config.paths.workflowsDir,
-          debounceMs: config.sync.debounceMs,
-          autoPush: config.sync.autoPush,
-          autoPull: config.sync.autoPull,
-        });
+        this.watcher = new Watcher(this.syncEngine.workflowsDir, this.syncEngine);
         await this.watcher.start();
       } else {
         logger.info('File watcher disabled', { context: 'SyncService' });
@@ -79,12 +80,6 @@ class SyncService {
         webhookEnabled: config.webhook.enabled,
         workflowsDir: config.paths.workflowsDir,
       });
-
-      // Initial sync if configured
-      if (config.sync.autoPull) {
-        logger.info('Running initial pull sync', { context: 'SyncService' });
-        await this.syncEngine.pullFromN8n();
-      }
 
       // Keep process alive
       process.on('SIGINT', () => this.stop());

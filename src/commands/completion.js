@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -234,7 +234,7 @@ export async function completionCommand(shell = 'bash') {
 }
 
 // CLI execution
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const shell = process.argv[2] || 'bash';
   completionCommand(shell);
 }

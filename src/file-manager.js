@@ -1,6 +1,5 @@
 import { readFile, writeFile, readdir, stat, mkdir } from 'fs/promises';
-import { join, dirname, relative, sep, extname } from 'path';
-import { existsSync } from 'fs';
+import { join, dirname, relative, extname } from 'path';
 import { createHash } from 'crypto';
 import { minimatch } from 'minimatch';
 import yaml from 'js-yaml';
@@ -33,6 +32,7 @@ export class FileManager {
       const fullPath = join(dir, entry.name);
 
       if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
         await this._scanDirectory(fullPath, files);
       } else if (entry.isFile()) {
         const ext = extname(entry.name).toLowerCase();
@@ -92,33 +92,23 @@ export class FileManager {
   }
 
   /**
+   * Serialize workflow for the file's format (JSON or YAML)
+   */
+  serialize(filePath, workflow) {
+    const { _metadata, ...clean } = workflow;
+    const ext = extname(filePath).toLowerCase();
+    if (ext === '.yaml' || ext === '.yml') {
+      return yaml.dump(clean, { indent: 2, lineWidth: 120, noRefs: true });
+    }
+    return JSON.stringify(clean, null, 2) + '\n';
+  }
+
+  /**
    * Write workflow to file (supports JSON and YAML)
    */
-  async writeWorkflow(filePath, workflow, format = null) {
-    // Remove metadata before writing
-    const { _metadata, ...cleanWorkflow } = workflow;
-
-    // Determine format from file extension if not specified
-    const ext = extname(filePath).toLowerCase();
-    const outputFormat = format || (ext === '.yaml' || ext === '.yml' ? 'yaml' : 'json');
-
-    let content;
-    if (outputFormat === 'yaml') {
-      content = yaml.dump(cleanWorkflow, {
-        indent: 2,
-        lineWidth: 120,
-        noRefs: true,
-      });
-    } else {
-      content = JSON.stringify(cleanWorkflow, null, 2);
-    }
-
-    // Ensure directory exists
-    const dir = dirname(filePath);
-    if (!existsSync(dir)) {
-      await mkdir(dir, { recursive: true });
-    }
-
+  async writeWorkflow(filePath, workflow) {
+    const content = this.serialize(filePath, workflow);
+    await mkdir(dirname(filePath), { recursive: true });
     await writeFile(filePath, content, 'utf-8');
     return this._calculateHash(content);
   }
@@ -138,58 +128,11 @@ export class FileManager {
   }
 
   /**
-   * Get workflow path from metadata
-   */
-  getWorkflowPath(workflow) {
-    // Extract path from workflow tags or name
-    const tags = workflow.tags || [];
-    const pathTag = tags.find(t => t.name?.startsWith('path:'));
-
-    if (pathTag) {
-      const path = pathTag.name.replace('path:', '');
-      return join(this.baseDir, path);
-    }
-
-    // Fallback: derive from workflow name
-    return this._derivePathFromName(workflow.name);
-  }
-
-  /**
-   * Derive file path from workflow name
-   */
-  _derivePathFromName(name) {
-    // Parse workflow name pattern: [Suite] Method - Stage
-    // Example: [Text] SFT - Configure -> 01-text-generation-suite/02-supervised-finetuning/sft/configure-sft.json
-
-    const match = name.match(/\[(.+?)\]\s+(.+?)\s+-\s+(.+)/);
-    if (!match) {
-      // Fallback to simple naming
-      const fileName = name.toLowerCase().replace(/\s+/g, '-') + '.json';
-      return join(this.baseDir, fileName);
-    }
-
-    const [, suite, method, stage] = match;
-    const suiteMap = {
-      'Text': '01-text-generation-suite',
-      'Image': '02-image-data-suite',
-      'TimeSeries': '03-time-series-suite',
-      'Tabular': '04-tabular-data-suite',
-      'Shared': '00-shared-components',
-      'Utility': '99-utilities',
-    };
-
-    const suiteDir = suiteMap[suite] || suite.toLowerCase();
-    const methodDir = method.toLowerCase().replace(/\s+/g, '-');
-    const fileName = `${stage.toLowerCase().replace(/\s+/g, '-')}-${methodDir}.json`;
-
-    return join(this.baseDir, suiteDir, methodDir, fileName);
-  }
-
-  /**
    * Get relative path for display
    */
   getRelativePath(filePath) {
-    return relative(this.baseDir, filePath);
+    const rel = relative(this.baseDir, filePath);
+    return rel.startsWith('..') ? relative(process.cwd(), filePath) : rel;
   }
 }
 

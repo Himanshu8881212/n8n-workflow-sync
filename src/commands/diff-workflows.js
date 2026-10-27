@@ -9,12 +9,22 @@
  */
 
 import chalk from 'chalk';
+import { pathToFileURL } from 'url';
 import { N8nClient } from '../n8n-client.js';
 import { FileManager } from '../file-manager.js';
 import { config } from '../config.js';
 
+// Key-order-independent JSON, so n8n reordering keys isn't reported as a change
+const stable = (v) =>
+  JSON.stringify(v, (k, val) =>
+    val && typeof val === 'object' && !Array.isArray(val)
+      ? Object.fromEntries(Object.keys(val).sort().map((key) => [key, val[key]]))
+      : val,
+  );
+
 /**
- * Calculate diff between two workflow objects
+ * Calculate diff between two workflow objects.
+ * Only fields present in the local file are compared (absent = not managed).
  */
 function calculateDiff(local, remote) {
   const diff = {
@@ -26,8 +36,10 @@ function calculateDiff(local, remote) {
   const fieldsToCompare = ['name', 'active', 'tags', 'settings'];
 
   for (const field of fieldsToCompare) {
-    const localValue = JSON.stringify(local[field]);
-    const remoteValue = JSON.stringify(remote[field]);
+    if (local[field] === undefined) continue;
+    const tagNames = (tags) => (tags || []).map((t) => t.name ?? t).sort();
+    const localValue = stable(field === 'tags' ? tagNames(local.tags) : local[field]);
+    const remoteValue = stable(field === 'tags' ? tagNames(remote.tags) : remote[field]);
 
     if (localValue !== remoteValue) {
       diff.changed = true;
@@ -39,8 +51,8 @@ function calculateDiff(local, remote) {
   }
 
   // Compare nodes
-  const localNodes = JSON.stringify(local.nodes || []);
-  const remoteNodes = JSON.stringify(remote.nodes || []);
+  const localNodes = stable(local.nodes || []);
+  const remoteNodes = stable(remote.nodes || []);
 
   if (localNodes !== remoteNodes) {
     diff.changed = true;
@@ -53,8 +65,8 @@ function calculateDiff(local, remote) {
   }
 
   // Compare connections
-  const localConnections = JSON.stringify(local.connections || {});
-  const remoteConnections = JSON.stringify(remote.connections || {});
+  const localConnections = stable(local.connections || {});
+  const remoteConnections = stable(remote.connections || {});
 
   if (localConnections !== remoteConnections) {
     diff.changed = true;
@@ -158,7 +170,7 @@ export async function diffWorkflowsCommand(options = {}) {
     const localMap = new Map();
     for (const file of localFiles) {
       const workflow = await fileManager.readWorkflow(file);
-      localMap.set(workflow.name, { file, workflow });
+      if (Array.isArray(workflow.nodes)) localMap.set(workflow.name, { file, workflow });
     }
 
     const remoteMap = new Map();
@@ -255,7 +267,7 @@ export async function diffWorkflowsCommand(options = {}) {
 }
 
 // CLI execution
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
   const options = {
     workflowName: args[0] || null,

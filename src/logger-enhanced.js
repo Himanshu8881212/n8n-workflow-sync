@@ -28,7 +28,9 @@ const logger = winston.createLogger({
   ),
   transports: [
     // Console transport with colors
+    // Logs go to stderr so stdout stays clean for --json / -o json output
     new winston.transports.Console({
+      stderrLevels: Object.keys(winston.config.npm.levels),
       format: combine(
         colorize(),
         consoleFormat,

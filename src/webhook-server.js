@@ -42,6 +42,9 @@ export class WebhookServer {
       logger.info('Webhook server disabled', { context: 'WebhookServer' });
       return;
     }
+    if (!this.secret) {
+      throw new Error('WEBHOOK_SECRET is required to run the webhook server');
+    }
 
     return new Promise((resolve, reject) => {
       this.server = http.createServer((req, res) => this._handleRequest(req, res));
@@ -92,18 +95,6 @@ export class WebhookServer {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const path = url.pathname;
 
-    // CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Webhook-Signature');
-
-    // Handle OPTIONS (CORS preflight)
-    if (req.method === 'OPTIONS') {
-      res.writeHead(204);
-      res.end();
-      return;
-    }
-
     // Route requests
     try {
       if (path === '/health' && req.method === 'GET') {
@@ -133,8 +124,6 @@ export class WebhookServer {
    * Verify webhook signature
    */
   _verifySignature(req, body) {
-    if (!this.secret) return true; // No secret configured, skip verification
-
     const signature = req.headers['x-webhook-signature'];
     if (!signature) {
       logger.warn('Missing webhook signature', { context: 'WebhookServer' });
@@ -146,7 +135,9 @@ export class WebhookServer {
       .update(body)
       .digest('hex');
 
-    return signature === expectedSignature;
+    const a = Buffer.from(String(signature));
+    const b = Buffer.from(expectedSignature);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
 
   /**
@@ -157,6 +148,10 @@ export class WebhookServer {
       let body = '';
       req.on('data', (chunk) => {
         body += chunk.toString();
+        if (body.length > 1_000_000) {
+          reject(new Error('Request body too large'));
+          req.destroy();
+        }
       });
       req.on('end', () => resolve(body));
       req.on('error', reject);

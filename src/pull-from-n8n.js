@@ -19,12 +19,16 @@ const program = new Command();
 
 program
   .name('pull-from-n8n')
-  .description('Pull workflows from n8n to local files')
+  .description('Pull workflows from n8n to local files. Default: only workflows already tracked in the folder.')
+  .argument('[workflows...]', 'Workflow ids or exact names to pull into the folder (in addition to tracked ones)')
   .option('-d, --directory <path>', 'Workflows directory', config.paths.workflowsDir)
+  .option('-t, --tag <name...>', 'Also pull workflows with any of these tags')
+  .option('--all', 'Pull every workflow on the instance')
   .option('--dry-run', 'Show what would be pulled without making changes')
   .parse(process.argv);
 
 const options = program.opts();
+const select = program.args;
 
 /**
  * Main function
@@ -35,6 +39,7 @@ async function main() {
 
     // Validate configuration
     validateConfig();
+    logger.level = 'error'; // summary is printed below
 
     // Create sync engine
     const syncEngine = new SyncEngine({
@@ -53,19 +58,29 @@ async function main() {
 
     try {
       // Pull workflows
-      const result = await syncEngine.pullFromN8n();
+      const result = await syncEngine.pullFromN8n({ select, tags: options.tag || [], all: !!options.all });
 
       spinner.succeed('Pull completed');
 
       // Show results
       console.log(chalk.green('\n✅ Pull Summary:'));
-      console.log(chalk.gray(`  Total workflows: ${result.total}`));
+      console.log(chalk.gray(`  Selected: ${result.total}`));
       console.log(chalk.green(`  ✓ Pulled: ${result.pulled}`));
       if (result.skipped > 0) {
         console.log(chalk.yellow(`  ⊘ Skipped: ${result.skipped}`));
       }
       if (result.errors > 0) {
         console.log(chalk.red(`  ✗ Errors: ${result.errors}`));
+      }
+      if (result.notFound.length > 0) {
+        console.log(chalk.red(`  ✗ Not found in n8n: ${result.notFound.join(', ')}`));
+      }
+      if (result.ignored > 0) {
+        console.log(chalk.gray(`  · Not tracked here (left alone): ${result.ignored}`));
+      }
+      if (result.total === 0) {
+        console.log(chalk.yellow('\n  Nothing tracked in this folder yet. Pull specific flows with'));
+        console.log(chalk.yellow('  `pull-from-n8n "<name or id>"`, by tag with `--tag <name>`, or everything with `--all`.'));
       }
 
       if (options.dryRun) {
