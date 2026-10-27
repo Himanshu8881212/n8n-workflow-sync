@@ -124,7 +124,7 @@ It needs the repo secrets `N8N_API_URL` (reachable from GitHub) and `N8N_API_KEY
 ## Limits
 
 - n8n's public API can't start Manual or Schedule triggers, so `run` only works for webhook flows. For the others, use `executions` after they've run.
-- Credential secrets are never read back from n8n (by design). Projects and folders need an n8n license or have no public API, so they aren't synced.
+- `credentials push/test/list` need n8n 2.x (n8n 1.x has no API to list credentials; everything else works on 1.x). Credential secrets are never read back from n8n (by design). Projects and folders need an n8n license or have no public API, so they aren't synced.
 - Validation checks the structure only. A wrong parameter value only shows up at run time, so use `run` or `executions`.
 - Backups are never rotated. Delete `flows/.n8n-sync/backups/` when it gets big.
 
