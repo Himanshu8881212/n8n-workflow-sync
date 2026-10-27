@@ -12,7 +12,7 @@ N8N="$(cd "$(dirname "$(realpath ~/.claude/skills/n8n-sync/SKILL.md)")/../.." &&
 node "$N8N" <command> ...
 ```
 
-(Or `npx -y github:Himanshu8881212/n8n-workflow-sync <command>` without a local clone.)
+(Without a local clone: `npx -y github:Himanshu8881212/n8n-workflow-sync <command>` on Node 24, or `npm install -g github:Himanshu8881212/n8n-workflow-sync` on Node 20/22, then `n8n-sync <command>`.)
 
 Run commands **from the project folder**. Config comes from `./.env` there (`N8N_API_URL`, `N8N_API_KEY`, `WORKFLOWS_DIR`, usually `./flows`); `--env prod` reads `./.env.prod` instead (`node "$N8N" --env prod push`). If no `.env` exists, ask for the API URL (e.g. `http://localhost:5678/api/v1`) and an API key (n8n → Settings → n8n API). Never print the key. New project: `node "$N8N" init` (example flow, CLAUDE.md, .gitignore, GitHub Action).
 

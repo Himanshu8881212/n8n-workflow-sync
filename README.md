@@ -9,7 +9,12 @@ npx -y github:Himanshu8881212/n8n-workflow-sync push --activate
 npx -y github:Himanshu8881212/n8n-workflow-sync run "Hello Webhook" --data '{"name":"you"}'
 ```
 
-Below, `n8n-sync` means that `npx` command (or `node src/cli.js` in a clone). Tested against n8n 2.45.
+Below, `n8n-sync` means that `npx` command (or `node src/cli.js` in a clone).
+
+**Install:** `npx github:…` needs **Node 24** (npm 10 on Node 20/22 has a bug installing from GitHub). On Node 20/22 use
+`npm install -g github:Himanshu8881212/n8n-workflow-sync` once, then run `n8n-sync …`. CI tests both methods on Node 20/22/24.
+
+**Tested on** Linux, macOS and Windows with Node 20/22/24, and end-to-end against real n8n 2.45.4 and 1.123.88.
 
 ## Setup
 
