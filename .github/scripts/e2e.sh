@@ -95,8 +95,14 @@ fi
 
 # --- pagination: 300 extra workflows
 # (xargs, not `&` + `wait`: a bare wait would also wait for n8n itself)
-seq 1 300 | xargs -P 20 -I@N curl -sf -o /dev/null -H "X-N8N-API-KEY: $N8N_API_KEY" -H 'Content-Type: application/json' \
-  -X POST "$N8N_API_URL/workflows" -d '{"name":"bulk @N","nodes":[],"connections":{},"settings":{}}'
+BULK='{"name":"bulk @N","nodes":[{"id":"t","name":"Start","type":"n8n-nodes-base.manualTrigger","typeVersion":1,"position":[0,0],"parameters":{}}],"connections":{},"settings":{}}'
+codes=$(seq 1 300 | xargs -P 20 -I@N curl -s -o /dev/null -w '%{http_code}\n' -H "X-N8N-API-KEY: $N8N_API_KEY" \
+  -H 'Content-Type: application/json' -X POST "$N8N_API_URL/workflows" -d "$BULK" | sort | uniq -c)
+[[ $(grep -c . <<<"$codes") == 1 && $codes == *" 200" ]] || {
+  echo "bulk create status codes: $codes"
+  api -X POST "$N8N_API_URL/workflows" -d "${BULK//@N/probe}" || curl -s -H "X-N8N-API-KEY: $N8N_API_KEY" -H 'Content-Type: application/json' -X POST "$N8N_API_URL/workflows" -d "${BULK//@N/probe}"
+  fail "bulk create"
+}
 COUNT=$(S list -o json | jq length)
 [ "$COUNT" -ge 301 ] || fail "list paginated: got $COUNT"
 R=$(S pull --all -d "$WORK/all" --json)
