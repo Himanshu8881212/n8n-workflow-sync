@@ -28,6 +28,26 @@ jobs:
           node src/cli.js validate -d "$RUNNER_TEMP/proj/flows" --strict
           test -f "$RUNNER_TEMP/proj/.gitignore" && test -f "$RUNNER_TEMP/proj/.claude/settings.json"
 
+  # Which install methods work on which Node version (docs depend on it)
+  install:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22, 24]
+        method: [npx, global]
+    name: install (${{ matrix.method }}, node ${{ matrix.node }})
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: npx github:<repo>#<sha>
+        if: matrix.method == 'npx'
+        run: npx -y "github:${{ github.repository }}#${{ github.sha }}" --help
+      - name: npm install -g github:<repo>#<sha>
+        if: matrix.method == 'global'
+        run: npm install -g "github:${{ github.repository }}#${{ github.sha }}" && n8n-sync --help
+
   # Real n8n inside the runner; the tool installed with npx from this commit,
   # exactly like a user (or the project template's GitHub Action) would.
   e2e:
@@ -39,7 +59,7 @@ jobs:
           - n8n: latest
             node: 24
           - n8n: 1.123.88
-            node: 22
+            node: 24
     name: e2e (n8n ${{ matrix.n8n }})
     steps:
       - uses: actions/checkout@v4

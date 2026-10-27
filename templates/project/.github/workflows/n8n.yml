@@ -27,7 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        with: { node-version: 24 }
       - run: npx -y "$N8N_SYNC" validate -d flows
 
   deploy:
@@ -38,7 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22 }
+        with: { node-version: 24 }
       # Files with "active": true are activated after deploy
       - run: npx -y "$N8N_SYNC" push -d flows --force
         env:

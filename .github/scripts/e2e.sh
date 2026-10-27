@@ -73,10 +73,10 @@ cat > flows/credentials.n8n.json <<'EOF'
   { "name": "CI Google Sheets", "type": "googleSheetsOAuth2Api", "data": { "clientId": "{{env.CI_OAUTH_ID}}", "clientSecret": "{{env.CI_OAUTH_SECRET}}" } }
 ]
 EOF
-R=$(S credentials push --json 2>&1 || true)
+R=$(S credentials push --json 2>/dev/null || true)
 [ "$(jq '.errors' <<<"$R")" = 2 ] || { echo "$R"; fail "missing env vars should be reported"; }
 SECRET="ci-secret-$RANDOM$RANDOM"
-OUT=$(CI_HEADER_SECRET="$SECRET" CI_OAUTH_ID="oauth-id-$RANDOM" CI_OAUTH_SECRET="oauth-sec-$RANDOM$RANDOM" S credentials push --json 2>&1) || { echo "$OUT"; fail "credentials push"; }
+OUT=$(CI_HEADER_SECRET="$SECRET" CI_OAUTH_ID="oauth-id-$RANDOM" CI_OAUTH_SECRET="oauth-sec-$RANDOM$RANDOM" S credentials push --json 2>/dev/null) || { echo "$OUT"; fail "credentials push"; }
 [ "$(jq '.created' <<<"$OUT")" = 2 ] || { echo "$OUT"; fail "credentials created"; }
 grep -q "$SECRET" <<<"$OUT" && fail "secret leaked into output"
 grep -rq "$SECRET" . && fail "secret leaked into a file"

@@ -3,7 +3,7 @@ import assert from 'node:assert';
 import { mkdtemp, writeFile, readFile, readdir, rm } from 'fs/promises';
 import { existsSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { SyncEngine } from '../src/sync-engine.js';
 import { toApiBody } from '../src/n8n-client.js';
 import { validateWorkflow } from '../src/validator.js';
@@ -259,7 +259,7 @@ describe('SyncEngine', () => {
 
       const r = await engine.pullFromN8n({ all: true });
       assert.deepStrictEqual([r.pulled, r.errors], [3, 0]);
-      const files = (await readdir(dir, { recursive: true })).filter((f) => !f.startsWith('.n8n-sync')).sort();
+      const files = (await readdir(dir, { recursive: true })).map((f) => f.split(sep).join('/')).filter((f) => !f.startsWith('.n8n-sync')).sort();
       assert.deepStrictEqual(files, ['_', '_/_evil.json', 'same_name.json', 'same_name_wf2.json']);
       assert.strictEqual((await read('same_name.json')).updatedAt, undefined, 'volatile fields stripped');
 
@@ -280,7 +280,7 @@ describe('SyncEngine', () => {
       const r2 = await engine.pullFromN8n({ select: ['Someone Else', 'nope'], tags: ['team-a'] });
       assert.deepStrictEqual(r2.notFound, ['nope']);
       assert.strictEqual(r2.errors, 1);
-      const files = (await readdir(dir, { recursive: true })).filter((f) => !f.startsWith('.n8n-sync')).sort();
+      const files = (await readdir(dir, { recursive: true })).map((f) => f.split(sep).join('/')).filter((f) => !f.startsWith('.n8n-sync')).sort();
       assert.deepStrictEqual(files, ['mine.json', 'someone_else.json', 'team-a', 'team-a/tagged.json']);
 
       const r3 = await engine.pullFromN8n();
