@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+# per-machine sync baselines + backups
+.n8n-sync/
+node_modules/

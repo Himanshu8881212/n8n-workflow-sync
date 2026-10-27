@@ -1,9 +1,14 @@
-import { readFile, writeFile, readdir, stat, mkdir } from 'fs/promises';
-import { join, dirname, relative, extname } from 'path';
+import { readFile, writeFile, readdir, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import { join, dirname, relative, extname, resolve, sep } from 'path';
 import { createHash } from 'crypto';
 import { minimatch } from 'minimatch';
 import yaml from 'js-yaml';
 import { config } from './config.js';
+
+// Node parameters that hold code and may live in a separate file
+export const CODE_PARAMS = ['jsCode', 'pythonCode', 'functionCode'];
+export const CODE_REF = '@file:';
 
 /**
  * File Manager for local workflow files
@@ -19,7 +24,8 @@ export class FileManager {
   async getAllWorkflowFiles() {
     const files = [];
     await this._scanDirectory(this.baseDir, files);
-    return files.filter(f => this._shouldInclude(f));
+    // *.n8n.json = data-tables / variables files, not workflows
+    return files.filter((f) => !f.endsWith('.n8n.json') && this._shouldInclude(f));
   }
 
   /**
@@ -67,28 +73,79 @@ export class FileManager {
   }
 
   /**
-   * Read workflow from file (supports JSON and YAML)
+   * Read workflow from file (supports JSON and YAML).
+   *
+   * Code node parameters may point at a separate file
+   * (`"jsCode": "@file:my-flow.transform.js"`, relative to the workflow file);
+   * they are inlined here so everything downstream sees real code.
+   * `_metadata.raw` keeps the file exactly as written (with the references),
+   * `_metadata.hash` covers the workflow file plus its code files.
    */
   async readWorkflow(filePath) {
     const content = await readFile(filePath, 'utf-8');
     const ext = extname(filePath).toLowerCase();
+    const raw = ext === '.yaml' || ext === '.yml' ? yaml.load(content) : JSON.parse(content);
 
-    let workflow;
-    if (ext === '.yaml' || ext === '.yml') {
-      workflow = yaml.load(content);
-    } else {
-      workflow = JSON.parse(content);
+    const codeRefs = [];
+    let workflow = raw;
+    if (Array.isArray(raw?.nodes)) {
+      workflow = { ...raw, nodes: [] };
+      for (const node of raw.nodes) {
+        const params = { ...(node?.parameters || {}) };
+        for (const param of CODE_PARAMS) {
+          const value = params[param];
+          if (typeof value === 'string' && value.startsWith(CODE_REF)) {
+            const path = resolve(dirname(filePath), value.slice(CODE_REF.length).trim());
+            if (!existsSync(path)) throw new Error(`node "${node.name}": code file not found: ${value}`);
+            params[param] = await readFile(path, 'utf-8');
+            codeRefs.push({ node: node.name, param, path, content: params[param] });
+          }
+        }
+        workflow.nodes.push(node?.parameters ? { ...node, parameters: params } : node);
+      }
     }
 
     return {
       ...workflow,
       _metadata: {
         filePath: relative(this.baseDir, filePath),
-        hash: this._calculateHash(content),
-        lastModified: (await stat(filePath)).mtime,
+        hash: this._calculateHash(content + codeRefs.map((r) => '\0' + r.content).join('')),
+        raw,
+        codeRefs,
         format: ext === '.yaml' || ext === '.yml' ? 'yaml' : 'json',
       },
     };
+  }
+
+  /**
+   * Build what writing an (inline-code) workflow would produce. Code params
+   * listed in `refs` (Map "node\0param" -> code file path) are written to
+   * their own file and replaced by an `@file:` reference.
+   * @returns {{ content: string, codeFiles: {path: string, content: string}[], hash: string }}
+   */
+  prepareWrite(filePath, workflow, refs = new Map()) {
+    const codeFiles = [];
+    let out = workflow;
+    if (refs.size && Array.isArray(workflow.nodes)) {
+      out = {
+        ...workflow,
+        nodes: workflow.nodes.map((node) => {
+          const params = { ...(node.parameters || {}) };
+          for (const param of CODE_PARAMS) {
+            const path = refs.get(`${node.name}\0${param}`);
+            if (path && typeof params[param] === 'string') {
+              codeFiles.push({ path, content: params[param] });
+              let rel = relative(dirname(filePath), path).split(sep).join('/');
+              if (!rel.startsWith('.')) rel = `./${rel}`;
+              params[param] = `${CODE_REF}${rel}`;
+            }
+          }
+          return node.parameters ? { ...node, parameters: params } : node;
+        }),
+      };
+    }
+    const content = this.serialize(filePath, out);
+    return { content, codeFiles, hash: this._calculateHash(content + codeFiles.map((c) => '\0' + c.content).join('')) };
   }
 
   /**
@@ -104,13 +161,15 @@ export class FileManager {
   }
 
   /**
-   * Write workflow to file (supports JSON and YAML)
+   * Write workflow to file (supports JSON and YAML). `workflow` is written
+   * as-is; pass `refs` to split code params into their own files.
    */
-  async writeWorkflow(filePath, workflow) {
-    const content = this.serialize(filePath, workflow);
+  async writeWorkflow(filePath, workflow, refs) {
+    const { content, codeFiles, hash } = this.prepareWrite(filePath, workflow, refs);
     await mkdir(dirname(filePath), { recursive: true });
+    for (const file of codeFiles) await writeFile(file.path, file.content, 'utf-8');
     await writeFile(filePath, content, 'utf-8');
-    return this._calculateHash(content);
+    return hash;
   }
 
   /**

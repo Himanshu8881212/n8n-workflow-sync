@@ -5,14 +5,30 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Load .env from the project root (works no matter which directory you run from)
-dotenv.config({ path: join(__dirname, '../.env'), quiet: true });
+// Config is per project: the first file that sets a variable wins.
+//   1. <project>/.env.<N8N_ENV>   (e.g. N8N_ENV=prod -> .env.prod, or `n8n-sync --env prod`)
+//   2. <project>/.env
+//   3. <tool repo>/.env           (global fallback)
+// Real environment variables beat all of them (CI secrets).
+const envName = process.env.N8N_ENV;
+const envFiles = [
+  ...(envName ? [join(process.cwd(), `.env.${envName}`)] : []),
+  join(process.cwd(), '.env'),
+  join(__dirname, '../.env'),
+];
+for (const path of envFiles) {
+  dotenv.config({ path, quiet: true });
+}
 
 export const config = {
+  env: envName || null,
+
   // n8n Configuration
   n8n: {
     apiUrl: process.env.N8N_API_URL || 'http://localhost:5678/api/v1',
     apiKey: process.env.N8N_API_KEY || '',
+    // Base URL for calling production webhooks (`run`). Defaults to the API host.
+    webhookUrl: process.env.N8N_WEBHOOK_URL || null,
   },
 
   // Sync Configuration
@@ -61,7 +77,10 @@ export function validateConfig() {
   }
 
   if (!config.n8n.apiKey) {
-    errors.push('N8N_API_KEY is required (n8n → Settings → n8n API → Create API key)');
+    errors.push(
+      `N8N_API_KEY is required (n8n → Settings → n8n API → Create API key). ` +
+        `Put it in ${envName ? `.env.${envName} or ` : ''}.env in your project folder.`,
+    );
   }
 
   if (config.webhook.enabled && !config.webhook.secret) {

@@ -14,8 +14,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # Local workflow files / test output
-workflows/
-test-workflows/
+/workflows/
+/test-workflows/
 coverage/
 
 # Sync state

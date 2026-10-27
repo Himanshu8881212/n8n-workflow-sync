@@ -1,280 +1,52 @@
 #!/usr/bin/env node
 
-/**
- * Workflow Diff Command
- * 
- * Shows differences between local and remote workflows.
- * 
- * @module commands/diff-workflows
- */
-
+import { Command } from 'commander';
 import chalk from 'chalk';
-import { pathToFileURL } from 'url';
-import { N8nClient } from '../n8n-client.js';
-import { FileManager } from '../file-manager.js';
-import { config } from '../config.js';
+import { winstonLogger as logger } from '../logger-enhanced.js';
+import { config, validateConfig } from '../config.js';
+import { SyncEngine } from '../sync-engine.js';
 
-// Key-order-independent JSON, so n8n reordering keys isn't reported as a change
-const stable = (v) =>
-  JSON.stringify(v, (k, val) =>
-    val && typeof val === 'object' && !Array.isArray(val)
-      ? Object.fromEntries(Object.keys(val).sort().map((key) => [key, val[key]]))
-      : val,
-  );
+const program = new Command();
+program
+  .name('diff')
+  .description("Compare this folder's flow files with n8n and say which side changed (exit 1 if anything differs)")
+  .option('-d, --directory <path>', 'Workflows directory', config.paths.workflowsDir)
+  .option('--json', 'Print the result as JSON')
+  .parse(process.argv);
 
-/**
- * Calculate diff between two workflow objects.
- * Only fields present in the local file are compared (absent = not managed).
- */
-function calculateDiff(local, remote) {
-  const diff = {
-    changed: false,
-    fields: {},
-  };
+const options = program.opts();
 
-  // Compare basic fields
-  const fieldsToCompare = ['name', 'active', 'tags', 'settings'];
+const hint = (r) => {
+  if (r.localChanged && r.n8nChanged) return chalk.red('both sides changed - pull --force or push --force after merging by hand');
+  if (r.localChanged) return chalk.blue('changed locally → push');
+  if (r.n8nChanged) return chalk.magenta('changed in n8n → pull');
+  return chalk.gray('no sync record here → pull --force (take n8n) or push --force (take file)');
+};
 
-  for (const field of fieldsToCompare) {
-    if (local[field] === undefined) continue;
-    const tagNames = (tags) => (tags || []).map((t) => t.name ?? t).sort();
-    const localValue = stable(field === 'tags' ? tagNames(local.tags) : local[field]);
-    const remoteValue = stable(field === 'tags' ? tagNames(remote.tags) : remote[field]);
-
-    if (localValue !== remoteValue) {
-      diff.changed = true;
-      diff.fields[field] = {
-        local: local[field],
-        remote: remote[field],
-      };
-    }
-  }
-
-  // Compare nodes
-  const localNodes = stable(local.nodes || []);
-  const remoteNodes = stable(remote.nodes || []);
-
-  if (localNodes !== remoteNodes) {
-    diff.changed = true;
-    diff.fields.nodes = {
-      local: (local.nodes || []).length,
-      remote: (remote.nodes || []).length,
-      localNodes: local.nodes || [],
-      remoteNodes: remote.nodes || [],
-    };
-  }
-
-  // Compare connections
-  const localConnections = stable(local.connections || {});
-  const remoteConnections = stable(remote.connections || {});
-
-  if (localConnections !== remoteConnections) {
-    diff.changed = true;
-    diff.fields.connections = {
-      local: Object.keys(local.connections || {}).length,
-      remote: Object.keys(remote.connections || {}).length,
-    };
-  }
-
-  // Compare timestamps
-  if (local.updatedAt && remote.updatedAt) {
-    const localTime = new Date(local.updatedAt).getTime();
-    const remoteTime = new Date(remote.updatedAt).getTime();
-
-    diff.newerVersion = localTime > remoteTime ? 'local' : 'remote';
-    diff.timeDiff = Math.abs(localTime - remoteTime);
-  }
-
-  return diff;
-}
-
-/**
- * Format diff output
- */
-function formatDiff(workflowName, diff, format = 'pretty') {
-  if (format === 'json') {
-    return JSON.stringify({ workflow: workflowName, diff }, null, 2);
-  }
-
-  if (!diff.changed) {
-    return chalk.green(`✓ ${workflowName}: No differences`);
-  }
-
-  let output = chalk.yellow(`⚠ ${workflowName}: Differences found\n`);
-
-  // Show which version is newer
-  if (diff.newerVersion) {
-    const timeAgo = Math.floor(diff.timeDiff / 1000 / 60); // minutes
-    output += chalk.gray(`  Newer version: ${diff.newerVersion} (${timeAgo}m ago)\n`);
-  }
-
-  // Show field differences
-  for (const [field, values] of Object.entries(diff.fields)) {
-    output += chalk.cyan(`\n  ${field}:\n`);
-
-    if (field === 'nodes') {
-      output += chalk.red(`    - Local: ${values.local} nodes\n`);
-      output += chalk.green(`    + Remote: ${values.remote} nodes\n`);
-
-      // Show added/removed nodes
-      const localNodeIds = new Set(values.localNodes.map((n) => n.id));
-      const remoteNodeIds = new Set(values.remoteNodes.map((n) => n.id));
-
-      const added = values.remoteNodes.filter((n) => !localNodeIds.has(n.id));
-      const removed = values.localNodes.filter((n) => !remoteNodeIds.has(n.id));
-
-      if (added.length > 0) {
-        output += chalk.green(`    + Added nodes: ${added.map((n) => n.name).join(', ')}\n`);
-      }
-      if (removed.length > 0) {
-        output += chalk.red(`    - Removed nodes: ${removed.map((n) => n.name).join(', ')}\n`);
-      }
-    } else if (field === 'connections') {
-      output += chalk.red(`    - Local: ${values.local} connections\n`);
-      output += chalk.green(`    + Remote: ${values.remote} connections\n`);
-    } else {
-      output += chalk.red(`    - Local: ${JSON.stringify(values.local)}\n`);
-      output += chalk.green(`    + Remote: ${JSON.stringify(values.remote)}\n`);
-    }
-  }
-
-  return output;
-}
-
-/**
- * Diff workflows command
- */
-export async function diffWorkflowsCommand(options = {}) {
-  const {
-    workflowName = null,
-    format = 'pretty',
-    showUnchanged = false,
-  } = options;
-
-  console.log(chalk.bold.cyan('\n🔍 Comparing Local and Remote Workflows\n'));
-
+async function main() {
   try {
-    // Initialize clients
-    const client = new N8nClient(config.n8n.apiUrl, config.n8n.apiKey);
-    const fileManager = new FileManager(config.paths.workflowsDir);
+    validateConfig();
+    logger.level = 'error';
+    const results = await new SyncEngine({ workflowsDir: options.directory }).diff();
 
-    // Get local workflows
-    const localFiles = await fileManager.getAllWorkflowFiles();
-    console.log(chalk.gray(`Found ${localFiles.length} local workflows\n`));
-
-    // Get remote workflows
-    const remoteWorkflows = await client.listWorkflows();
-    console.log(chalk.gray(`Found ${remoteWorkflows.length} remote workflows\n`));
-
-    // Create maps for easy lookup
-    const localMap = new Map();
-    for (const file of localFiles) {
-      const workflow = await fileManager.readWorkflow(file);
-      if (Array.isArray(workflow.nodes)) localMap.set(workflow.name, { file, workflow });
-    }
-
-    const remoteMap = new Map();
-    for (const workflow of remoteWorkflows) {
-      remoteMap.set(workflow.name, workflow);
-    }
-
-    // Compare workflows
-    const results = [];
-    let changedCount = 0;
-    let unchangedCount = 0;
-    let localOnlyCount = 0;
-    let remoteOnlyCount = 0;
-
-    // Check local workflows
-    for (const [name, { workflow: local }] of localMap) {
-      if (workflowName && name !== workflowName) continue;
-
-      const remote = remoteMap.get(name);
-
-      if (!remote) {
-        localOnlyCount++;
-        results.push({
-          name,
-          status: 'local-only',
-          message: chalk.blue(`ℹ ${name}: Only exists locally`),
-        });
-        continue;
+    if (options.json) console.log(JSON.stringify(results, null, 2));
+    else {
+      console.log(chalk.blue.bold(`\n🔍 ${options.directory} vs ${config.n8n.apiUrl}${config.env ? ` (${config.env})` : ''}\n`));
+      for (const r of results) {
+        if (r.status === 'unchanged') console.log(chalk.green(`  ✓ ${r.file}`));
+        else if (r.status === 'changed') console.log(`  ${chalk.yellow('≠')} ${r.file} ${chalk.gray(`(${r.fields.join(', ')})`)} - ${hint(r)}`);
+        else if (r.status === 'not-in-n8n') console.log(`  ${chalk.blue('+')} ${r.file} ${chalk.gray('- not in n8n yet → push')}`);
+        else if (r.status === 'deleted-locally') console.log(`  ${chalk.red('-')} ${r.name} [${r.id}] ${chalk.gray('- file deleted, still in n8n → prune')}`);
+        else console.log(chalk.red(`  ✗ ${r.file}: ${r.error}`));
       }
-
-      const diff = calculateDiff(local, remote);
-
-      if (diff.changed) {
-        changedCount++;
-        results.push({
-          name,
-          status: 'changed',
-          message: formatDiff(name, diff, format),
-        });
-      } else {
-        unchangedCount++;
-        if (showUnchanged) {
-          results.push({
-            name,
-            status: 'unchanged',
-            message: chalk.green(`✓ ${name}: No differences`),
-          });
-        }
-      }
+      if (!results.length) console.log(chalk.gray('  No flow files here.'));
+      console.log();
     }
-
-    // Check for remote-only workflows
-    for (const [name, remote] of remoteMap) {
-      if (workflowName && name !== workflowName) continue;
-
-      if (!localMap.has(name)) {
-        remoteOnlyCount++;
-        results.push({
-          name,
-          status: 'remote-only',
-          message: chalk.magenta(`ℹ ${name}: Only exists remotely`),
-        });
-      }
-    }
-
-    // Print results
-    if (format === 'json') {
-      console.log(JSON.stringify(results, null, 2));
-    } else {
-      for (const result of results) {
-        console.log(result.message);
-      }
-
-      // Print summary
-      console.log(chalk.bold.cyan('\n📊 Summary:\n'));
-      console.log(chalk.yellow(`  Changed: ${changedCount}`));
-      console.log(chalk.green(`  Unchanged: ${unchangedCount}`));
-      console.log(chalk.blue(`  Local only: ${localOnlyCount}`));
-      console.log(chalk.magenta(`  Remote only: ${remoteOnlyCount}`));
-      console.log(chalk.gray(`  Total: ${results.length}\n`));
-    }
-
-    // Exit code based on changes
-    if (changedCount > 0 || localOnlyCount > 0 || remoteOnlyCount > 0) {
-      process.exit(1); // Differences found
-    } else {
-      process.exit(0); // No differences
-    }
+    process.exit(results.some((r) => r.status !== 'unchanged') ? 1 : 0);
   } catch (error) {
-    console.error(chalk.red('\n❌ Error comparing workflows:'));
-    console.error(chalk.red(error.message));
+    console.error(chalk.red('\n❌ Error:'), error.message);
     process.exit(1);
   }
 }
 
-// CLI execution
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const args = process.argv.slice(2);
-  const options = {
-    workflowName: args[0] || null,
-    format: args.includes('--json') ? 'json' : 'pretty',
-    showUnchanged: args.includes('--all'),
-  };
-
-  diffWorkflowsCommand(options);
-}
-
+main();

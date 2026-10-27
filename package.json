@@ -1,30 +1,26 @@
 {
   "name": "n8n-workflow-sync",
-  "version": "2.0.0",
-  "description": "Push local n8n workflow files to n8n (and activate them), pull n8n workflows to files",
-  "main": "src/index.js",
+  "version": "2.1.0",
+  "description": "Build n8n workflows as files (with Claude Code), push/activate/pull/run them, version them in git",
+  "main": "src/sync-engine.js",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
     "gui": "node src/gui-server.js",
-    "prod": "NODE_ENV=production node src/gui-server.js",
-    "dev": "nodemon src/index.js",
+    "mcp": "node src/mcp-server.js",
     "sync:pull": "node src/pull-from-n8n.js",
     "sync:push": "node src/push-to-n8n.js",
-    "sync:full": "npm run sync:pull && npm run sync:push",
     "workflows:list": "node src/commands/list-workflows.js",
     "workflows:activate": "node src/commands/activate-workflow.js",
     "workflows:deactivate": "node src/commands/deactivate-workflow.js",
     "workflows:search": "node src/commands/search-workflows.js",
     "workflows:diff": "node src/commands/diff-workflows.js",
     "workflows:prune": "node src/commands/prune-workflows.js",
+    "workflows:delete": "node src/commands/delete-workflow.js",
+    "workflows:validate": "node src/commands/validate-workflows.js",
     "completion": "node src/commands/completion.js",
-    "completion:bash": "node src/commands/completion.js bash",
-    "completion:zsh": "node src/commands/completion.js zsh",
-    "completion:fish": "node src/commands/completion.js fish",
     "version": "node src/commands/version.js",
-    "test": "node --test tests/",
-    "test:webhook": "node --test tests/webhook-comprehensive.test.js"
+    "test": "node --test tests/"
   },
   "keywords": [
     "n8n",
@@ -39,6 +35,7 @@
   "author": "SynthEngyne",
   "license": "MIT",
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "chalk": "^5.3.0",
     "chokidar": "^3.6.0",
     "commander": "^12.0.0",
@@ -50,16 +47,16 @@
     "ora": "^8.0.1",
     "p-queue": "^8.0.1",
     "winston": "^3.11.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.12.0"
   },
   "bin": {
-    "n8n-sync-push": "src/push-to-n8n.js",
-    "n8n-sync-pull": "src/pull-from-n8n.js"
+    "n8n-sync": "src/cli.js"
   }
 }

@@ -160,18 +160,89 @@ export class N8nClient {
   }
 
   /**
+   * GET a paginated list endpoint and return every item.
+   */
+  async _listAll(path, params = {}) {
+    const items = [];
+    let cursor = null;
+    do {
+      const query = new URLSearchParams({ limit: '250', ...params, ...(cursor ? { cursor } : {}) });
+      const data = await this._request('GET', `${path}?${query}`);
+      items.push(...(data?.data || []));
+      cursor = data?.nextCursor;
+    } while (cursor);
+    return items;
+  }
+
+  /**
+   * Get a workflow, or null if it doesn't exist
+   */
+  async getWorkflowOrNull(id) {
+    try {
+      return await this.getWorkflow(id);
+    } catch (error) {
+      if (error.status === 404 || error.status === 400) return null;
+      throw error;
+    }
+  }
+
+  /**
    * List all tags (follows pagination)
    */
   async listTags() {
-    const tags = [];
-    let cursor = null;
-    do {
-      const query = `?limit=250${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`;
-      const data = await this._request('GET', `/tags${query}`);
-      tags.push(...(data?.data || []));
-      cursor = data?.nextCursor;
-    } while (cursor);
-    return tags;
+    return this._listAll('/tags');
+  }
+
+  /**
+   * List credentials (id, name, type - never the secret data)
+   */
+  async listCredentials() {
+    return this._listAll('/credentials');
+  }
+
+  /**
+   * List executions, newest first.
+   * @param {Object} opts - { workflowId, status, limit, includeData }
+   */
+  async listExecutions({ workflowId, status, limit = 10, includeData = false } = {}) {
+    const query = new URLSearchParams({ limit: String(limit), includeData: String(includeData) });
+    if (workflowId) query.set('workflowId', workflowId);
+    if (status) query.set('status', status);
+    const data = await this._request('GET', `/executions?${query}`);
+    return data?.data || [];
+  }
+
+  /**
+   * Get one execution (with run data when includeData)
+   */
+  async getExecution(id, includeData = true) {
+    return this._request('GET', `/executions/${encodeURIComponent(id)}?includeData=${includeData}`);
+  }
+
+  // Variables (n8n license feature: 403 on unlicensed instances)
+  async listVariables() {
+    return this._listAll('/variables');
+  }
+  async createVariable(key, value) {
+    return this._request('POST', '/variables', { key, value });
+  }
+  async updateVariable(id, key, value) {
+    return this._request('PUT', `/variables/${encodeURIComponent(id)}`, { key, value });
+  }
+
+  // Data tables (schema only - rows are data, not config)
+  async listDataTables() {
+    return this._listAll('/data-tables');
+  }
+  async listDataTableColumns(id) {
+    const data = await this._request('GET', `/data-tables/${encodeURIComponent(id)}/columns`);
+    return Array.isArray(data) ? data : data?.data || [];
+  }
+  async createDataTable(name, columns) {
+    return this._request('POST', '/data-tables', { name, columns });
+  }
+  async addDataTableColumn(id, column) {
+    return this._request('POST', `/data-tables/${encodeURIComponent(id)}/columns`, column);
   }
 
   /**
