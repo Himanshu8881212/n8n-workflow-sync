@@ -70,7 +70,8 @@ S pull --force --json > /dev/null && ok "conflict guards (push + pull) + pull --
 if [[ $N8N_VERSION == 1.* ]]; then
   # n8n 1.x can't list credentials via the API: expect a clear message, not a crash
   echo '[{"name":"X","type":"httpHeaderAuth","data":{"name":"X","value":"{{env.X}}"}}]' > flows/credentials.n8n.json
-  X=1 S credentials push 2>&1 | grep -q "needs n8n 2.x" || fail "n8n 1.x: credentials push should explain it's unsupported"
+  out=$(X=1 S credentials push 2>&1 || true)
+  [[ $out == *"needs n8n 2.x"* ]] || { echo "$out"; fail "n8n 1.x: credentials push should explain it's unsupported"; }
   rm flows/credentials.n8n.json
   ok "n8n 1.x: credentials push explains it needs n8n 2.x"
 else
