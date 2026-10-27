@@ -85,11 +85,10 @@ async function loadWorkflows() {
 function setFilter(filter) {
     currentFilter = filter;
 
-    // Update button states
+    // Update button states (no implicit global `event` - it isn't guaranteed to exist)
     document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.remove('active');
+        btn.classList.toggle('active', btn.getAttribute('onclick') === `setFilter('${filter}')`);
     });
-    event.target.classList.add('active');
 
     filterWorkflows();
 }

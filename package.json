@@ -20,7 +20,7 @@
     "workflows:validate": "node src/commands/validate-workflows.js",
     "completion": "node src/commands/completion.js",
     "version": "node src/commands/version.js",
-    "test": "node --test tests/"
+    "test": "node --test"
   },
   "keywords": [
     "n8n",
