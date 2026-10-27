@@ -94,9 +94,10 @@ jq -e '.results | length == 2' "$WORK/ct.json" > /dev/null && ok "credentials te
 fi
 
 # --- pagination: 300 extra workflows
-# (xargs, not `&` + `wait`: a bare wait would also wait for n8n itself)
+# (xargs, not `&` + `wait`: a bare wait would also wait for n8n itself; one at a time
+#  because n8n 1.x's SQLite breaks under parallel workflow creation)
 BULK='{"name":"bulk @N","nodes":[{"id":"t","name":"Start","type":"n8n-nodes-base.manualTrigger","typeVersion":1,"position":[0,0],"parameters":{}}],"connections":{},"settings":{}}'
-codes=$(seq 1 300 | xargs -P 20 -I@N curl -s -o /dev/null -w '%{http_code}\n' -H "X-N8N-API-KEY: $N8N_API_KEY" \
+codes=$(seq 1 300 | xargs -P 1 -I@N curl -s -o /dev/null -w '%{http_code}\n' -H "X-N8N-API-KEY: $N8N_API_KEY" \
   -H 'Content-Type: application/json' -X POST "$N8N_API_URL/workflows" -d "$BULK" | sort | uniq -c)
 [[ $(grep -c . <<<"$codes") == 1 && $codes == *" 200" ]] || {
   echo "bulk create status codes: $codes"
