@@ -5,8 +5,11 @@
 # feature set. Needs: N8N_VERSION, TOOL_SPEC (e.g. github:owner/repo#sha), jq.
 set -euo pipefail
 
-PORT=5678
+PORT=${PORT:-5678}
 BASE="http://localhost:$PORT"
+MAJOR=${N8N_VERSION%%.*}
+# n8n 3.x is only published as a Docker image (no npm package any more)
+DOCKER=${N8N_DOCKER:-$([ "$MAJOR" -ge 3 ] && echo 1 || echo '')}
 export N8N_API_URL="$BASE/api/v1"
 WORK="$(mktemp -d)"
 # TOOL_CMD (e.g. "node /path/src/cli.js") only for fast local runs; CI uses the npx install
@@ -14,9 +17,17 @@ S() { if [ -n "${TOOL_CMD:-}" ]; then $TOOL_CMD "$@"; else npx -y "$TOOL_SPEC" "
 ok() { echo "✓ $*"; }
 fail() { echo "✗ $*"; exit 1; }
 
-echo "::group::start n8n@$N8N_VERSION"
-N8N_USER_FOLDER="$WORK/n8n" N8N_PORT=$PORT N8N_DIAGNOSTICS_ENABLED=false N8N_SECURE_COOKIE=false \
-  npx -y "n8n@$N8N_VERSION" start > "$WORK/n8n.log" 2>&1 &
+echo "::group::start n8n@$N8N_VERSION${DOCKER:+ (docker)}"
+if [ -n "$DOCKER" ]; then
+  docker rm -f n8n-e2e > /dev/null 2>&1 || true
+  trap 'docker rm -f n8n-e2e > /dev/null 2>&1 || true' EXIT
+  docker run -d --name n8n-e2e -p "$PORT:5678" -e N8N_DIAGNOSTICS_ENABLED=false -e N8N_SECURE_COOKIE=false \
+    -e WEBHOOK_URL="$BASE/" "docker.n8n.io/n8nio/n8n:$N8N_VERSION" > /dev/null
+  (docker logs -f n8n-e2e > "$WORK/n8n.log" 2>&1 &)
+else
+  N8N_USER_FOLDER="$WORK/n8n" N8N_PORT=$PORT N8N_DIAGNOSTICS_ENABLED=false N8N_SECURE_COOKIE=false \
+    npx -y "n8n@$N8N_VERSION" start > "$WORK/n8n.log" 2>&1 &
+fi
 echo "::endgroup::"
 
 # Owner + API key through n8n's internal REST API (what the UI does).
@@ -116,6 +127,24 @@ rm -rf flows/.n8n-sync
 R=$(S push -d flows --force --json)
 [ "$(jq '.errors + .invalid' <<<"$R")" = 0 ] && [ "$(jq '.pushed' <<<"$R")" = 0 ] || { echo "$R"; fail "template action: deploy"; }
 ok "template action: deploy (push --force, no state, no duplicates)"
+
+# --- agents (n8n packages; import needs n8n 3.0.1+)
+if [ "$MAJOR" -ge 3 ]; then
+  mkdir -p agents/agents/e2e-agent
+  cat > agents/agents/e2e-agent/agent.json <<'EOF'
+{ "name": "E2E Agent", "config": { "name": "E2E Agent", "model": "anthropic/claude-haiku-5-5", "instructions": "v1", "tools": [], "skills": [], "memory": { "enabled": false, "storage": "n8n" } } }
+EOF
+  R=$(S agents push --json) || { echo "$R"; fail "agents push (create)"; }
+  [ "$(jq -r '.agents[] | select(.name=="E2E Agent") | .status' <<<"$R")" = created ] || { echo "$R"; fail "agent created"; }
+  AID=$(jq -r .id agents/agents/e2e-agent/agent.json)
+  [[ $AID =~ ^[A-Za-z0-9]{16}$ ]] || fail "agent id written back"
+  jq '.config.instructions = "v2"' agents/agents/e2e-agent/agent.json > "$WORK/a.json" && mv "$WORK/a.json" agents/agents/e2e-agent/agent.json
+  R=$(S agents push --json) || { echo "$R"; fail "agents push (update)"; }
+  [ "$(jq -r '.agents[] | select(.name=="E2E Agent") | .status' <<<"$R")" = updated ] || { echo "$R"; fail "agent updated (same id, no copy)"; }
+  R=$(S agents pull "$AID" -d "$WORK/agents2" --json) || { echo "$R"; fail "agents pull"; }
+  [ "$(jq -r '.config.instructions' "$WORK"/agents2/agents/*"$AID"/agent.json)" = v2 ] || fail "pulled agent has the pushed change"
+  ok "agents: push creates (id written back), re-push updates, pull returns the change"
+fi
 
 # --- diff + delete
 S diff > /dev/null && ok "diff clean"

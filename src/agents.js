@@ -37,7 +37,8 @@ export const newId = () => [...randomBytes(16)].map((b) => ID_CHARS[b % ID_CHARS
 const UNSUPPORTED_IMPORT = /required property 'workflowConflictPolicy'|Agents is not supported yet/i;
 const AGENT_NOT_FOUND = /Agent\(s\) not found or not accessible/i;
 
-const emptyManifest = () => ({ packageFormatVersion: '1', agents: [], credentials: [], requirements: { credentials: [] } });
+// n8n requires sourceN8nVersion + sourceId (labels only - echoed back, never compared)
+const emptyManifest = () => ({ packageFormatVersion: '1', sourceN8nVersion: 'n8n-sync', sourceId: 'n8n-sync', agents: [], credentials: [], requirements: { credentials: [] } });
 
 async function withTemp(fn) {
   const dir = await mkdtemp(join(tmpdir(), 'n8n-agents-'));
@@ -233,6 +234,9 @@ export async function prepareManifest(client, dir) {
   const agents = await localAgents(dir);
   if (!agents.length) throw new Error(`No agents in ${join(dir, 'agents')} (expected agents/<name>/agent.json)`);
 
+  manifest.packageFormatVersion ??= '1';
+  manifest.sourceN8nVersion ||= 'n8n-sync';
+  manifest.sourceId ||= 'n8n-sync';
   manifest.agents = (manifest.agents || []).filter((a) => agents.some((l) => l.target === a.target));
   manifest.credentials ??= [];
   manifest.requirements ??= {};
@@ -241,10 +245,15 @@ export async function prepareManifest(client, dir) {
 
   for (const l of agents) {
     if (!l.agent.name) throw new Error(`${l.file}: "name" is required`);
-    if (!l.agent.id) {
-      l.agent = { id: newId(), ...l.agent };
+    // n8n's agent file schema requires these; a hand-written agent can leave them out
+    const filled = { id: l.agent.id || newId(), ...l.agent, availableInMCP: l.agent.availableInMCP ?? false, skills: l.agent.skills ?? {}, tools: l.agent.tools ?? {}, tasks: l.agent.tasks ?? {} };
+    if (JSON.stringify(filled) !== JSON.stringify(l.agent)) {
+      l.agent = filled;
       await writeJson(l.file, l.agent);
     }
+    // n8n requires agent-metadata.json; a new agent has no versions yet
+    const meta = join(dir, l.target, 'agent-metadata.json');
+    if (!existsSync(meta)) await writeJson(meta, { versionId: null, publishedVersionId: null });
     const entry = manifest.agents.find((a) => a.target === l.target);
     if (entry) Object.assign(entry, { id: l.agent.id, name: l.agent.name });
     else manifest.agents.push({ id: l.agent.id, name: l.agent.name, target: l.target });

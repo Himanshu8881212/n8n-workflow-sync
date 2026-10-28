@@ -110,6 +110,8 @@ describe('agents', () => {
     const r = await pushAgents(n8n, dir, { publishingPolicy: 'publish-all' });
     const written = await json(join(dir, 'agents/researcher/agent.json'));
     assert.match(written.id, /^[A-Za-z0-9]{16}$/);
+    assert.deepStrictEqual(await json(join(dir, 'agents/researcher/agent-metadata.json')), { versionId: null, publishedVersionId: null });
+    assert.deepStrictEqual([written.availableInMCP, written.skills, written.tools, written.tasks], [false, {}, {}, {}], 'schema defaults filled');
     assert.strictEqual(written.config.credential, CRED.id, 'credential name resolved to id');
     assert.deepStrictEqual(r.agents.map((a) => `${a.name}:${a.status}`).sort(), ['researcher:created', 'test:updated']);
 
@@ -119,6 +121,7 @@ describe('agents', () => {
     assert.ok(manifest.requirements.credentials[0].usedBy.some((u) => u.id === written.id));
     assert.ok(!entries.some((e) => e.startsWith('._')), 'no macOS metadata files');
     assert.strictEqual(n8n.firstEntry, 'manifest.json', 'n8n requires manifest.json first');
+    assert.ok(manifest.sourceN8nVersion && manifest.sourceId, 'n8n requires sourceN8nVersion + sourceId');
 
     // after n8n has it, a pull refreshes it like any other agent
     n8n.agents.push(written);
