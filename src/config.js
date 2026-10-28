@@ -29,6 +29,8 @@ export const config = {
     apiKey: process.env.N8N_API_KEY || '',
     // Base URL for calling production webhooks (`run`). Defaults to the API host.
     webhookUrl: process.env.N8N_WEBHOOK_URL || null,
+    // Where the n8n editor opens (dashboard link). Default: the API URL without /api/v1
+    editorUrl: process.env.N8N_EDITOR_URL || (process.env.N8N_API_URL || 'http://localhost:5678/api/v1').replace(/\/api\/v\d+\/?$/, ''),
   },
 
   // Sync Configuration

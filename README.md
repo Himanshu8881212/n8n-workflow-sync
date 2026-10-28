@@ -51,6 +51,8 @@ Config is per project: `./.env.<env>` → `./.env` → the tool's own `.env`. Re
 
 Every command takes `--json`. Logs go to stderr.
 
+**Dashboard** (`n8n-sync gui` → http://127.0.0.1:3001): a *Workflows* and an *Agents* tab with pull/push, activate/deactivate/delete for workflows, and per-agent status (synced / only in n8n / only local). It talks to the n8n in `N8N_API_URL`, so a dashboard on your laptop can drive an n8n on a server; `N8N_EDITOR_URL` sets the "open n8n" link (default: the API URL without `/api/v1`). Open `/#agents` to land on the agents tab.
+
 ## How sync stays safe
 
 - **Conflict guards.** `flows/.n8n-sync/state.json` (gitignored) records each flow as it was at the last sync, separately for each n8n instance.

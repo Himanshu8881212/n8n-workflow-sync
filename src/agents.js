@@ -89,6 +89,11 @@ async function localAgents(dir) {
   return out;
 }
 
+/** Agents in the folder: [{ id (null = not pushed yet), name, folder }] */
+export async function listLocalAgents(dir) {
+  return (await localAgents(dir)).map((l) => ({ id: l.agent.id || null, name: l.agent.name || l.folder, folder: l.folder }));
+}
+
 /**
  * Every agent n8n can see: [{ id, name, projectId }].
  * The public API has no "list agents" (and /projects needs a license), so find

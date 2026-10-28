@@ -6,6 +6,9 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 let ws;
 let allWorkflows = [];
 let currentFilter = 'all';
+let currentTab = 'workflows';
+let allAgents = [];
+let agentFilter = 'all';
 
 function connectWebSocket() {
     ws = new WebSocket(WS_URL);
@@ -30,6 +33,8 @@ function handleWebSocketMessage(message) {
     } else if (message.type === 'workflows') {
         allWorkflows = message.data;
         filterWorkflows();
+    } else if (message.type === 'agents-changed') {
+        loadAgents();
     } else if (message.type === 'sync-complete') {
         console.log('Sync complete:', message.operation);
         loadStats();
@@ -50,6 +55,13 @@ async function loadStats() {
 
 function updateStats(stats) {
     console.log('updateStats called with:', stats);
+
+    if (stats.n8n) {
+        const link = document.getElementById('n8nLink');
+        link.textContent = stats.n8n.editorUrl.replace(/^https?:\/\//, '') + (stats.n8n.env ? ` (${stats.n8n.env})` : '');
+        link.href = stats.n8n.editorUrl;
+        document.getElementById('n8nApi').textContent = 'API: ' + stats.n8n.apiUrl;
+    }
 
     // Update total workflows
     if (stats.totalWorkflows !== undefined) {
@@ -86,7 +98,7 @@ function setFilter(filter) {
     currentFilter = filter;
 
     // Update button states (no implicit global `event` - it isn't guaranteed to exist)
-    document.querySelectorAll('.filter-btn').forEach(btn => {
+    document.querySelectorAll('#workflowFilters .filter-btn').forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('onclick') === `setFilter('${filter}')`);
     });
 
@@ -165,7 +177,146 @@ function renderWorkflows(workflows) {
     }).join('');
 }
 
-async function triggerPull() {
+// ---- tabs: the sidebar buttons act on the current tab ----
+function setTab(tab) {
+    currentTab = tab;
+    document.getElementById('tab-workflows').classList.toggle('active', tab === 'workflows');
+    document.getElementById('tab-agents').classList.toggle('active', tab === 'agents');
+    document.getElementById('workflowFilters').style.display = tab === 'workflows' ? '' : 'none';
+    document.getElementById('agentFilters').style.display = tab === 'agents' ? '' : 'none';
+    document.getElementById('fullSyncBtn').style.display = tab === 'workflows' ? '' : 'none';
+    document.getElementById('publishOption').style.display = tab === 'agents' ? '' : 'none';
+    document.getElementById('searchBar').value = '';
+    history.replaceState(null, '', tab === 'agents' ? '#agents' : '#');
+    refresh();
+}
+
+function refresh() {
+    loadStats();
+    if (currentTab === 'agents') loadAgents();
+    else loadWorkflows();
+}
+
+function filterList() {
+    if (currentTab === 'agents') renderAgents();
+    else filterWorkflows();
+}
+
+function triggerPull() {
+    return currentTab === 'agents' ? pullAgents() : pullWorkflows();
+}
+
+function triggerPush() {
+    return currentTab === 'agents' ? pushAgents() : pushWorkflows();
+}
+
+// ---- agents ----
+async function loadAgents() {
+    try {
+        const response = await fetch(`${API_URL}/agents`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Failed to load agents');
+        allAgents = data.agents || [];
+        document.getElementById('totalAgents').textContent = allAgents.filter(a => a.inN8n).length;
+        if (currentTab === 'agents') renderAgents();
+    } catch (error) {
+        showToast('Failed to load agents: ' + error.message, 'error');
+    }
+}
+
+function setAgentFilter(filter) {
+    agentFilter = filter;
+    document.querySelectorAll('#agentFilters .filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('onclick') === `setAgentFilter('${filter}')`);
+    });
+    renderAgents();
+}
+
+function renderAgents() {
+    const list = document.getElementById('workflowList');
+    const term = document.getElementById('searchBar').value.toLowerCase();
+    const state = (a) => (a.inN8n && a.local ? 'synced' : a.inN8n ? 'remote' : 'local');
+    const agents = allAgents
+        .filter(a => agentFilter === 'all' || state(a) === agentFilter)
+        .filter(a => !term || a.name.toLowerCase().includes(term) || (a.id || '').toLowerCase().includes(term));
+    if (!agents.length) {
+        list.innerHTML = '<div class="empty">No agents found</div>';
+        return;
+    }
+    const badge = {
+        synced: '<span class="badge active">Synced</span>',
+        remote: '<span class="badge remote">Only in n8n</span>',
+        local: '<span class="badge local">Only local - not pushed</span>',
+    };
+    list.innerHTML = agents.map(a => {
+        const id = esc(a.id || '');
+        const s = state(a);
+        return `
+        <div class="workflow-item">
+            <div class="workflow-info">
+                <div class="workflow-name">${esc(a.name)} ${badge[s]}</div>
+                <div class="workflow-meta">${id || 'new - gets an id on push'}${a.projectId ? ' • project ' + esc(a.projectId) : ''}</div>
+            </div>
+            <div class="workflow-actions">
+                ${a.inN8n ? `<button class="btn btn-secondary" onclick="pullAgent('${id}')">${s === 'synced' ? 'Refresh' : 'Pull'}</button>` : ''}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+async function postAgents(path, body) {
+    const response = await fetch(`${API_URL}/agents/${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body || {}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || `${path} failed`);
+    return data;
+}
+
+async function pullAgent(id) {
+    try {
+        const r = await postAgents('pull', { select: [id] });
+        showToast(`Pulled ${r.agents.length} agent(s)`, 'success');
+        loadAgents();
+    } catch (error) {
+        showToast('Pull failed: ' + error.message, 'error');
+    }
+}
+
+async function pullAgents() {
+    try {
+        showToast('Pulling agents from n8n...', 'info');
+        // Nothing tracked yet -> pull every agent n8n has
+        const all = !allAgents.some(a => a.local);
+        const r = await postAgents('pull', { all });
+        const kept = r.kept.length ? ` (${r.kept.length} local-only kept)` : '';
+        showToast(`Pulled ${r.agents.length} agent(s)${kept}`, 'success');
+        loadAgents();
+    } catch (error) {
+        showToast('Pull failed: ' + error.message, 'error');
+    }
+}
+
+async function pushAgents() {
+    const publish = document.getElementById('publishAgents').checked;
+    const local = allAgents.filter(a => a.local).length;
+    if (!local) return showToast('No agents in the local folder - pull or create one first', 'error');
+    if (!confirm(`Push ${local} agent(s) from the agents folder to n8n${publish ? ' and publish them' : ''}?`)) return;
+    try {
+        showToast('Pushing agents to n8n...', 'info');
+        const r = await postAgents('push', { publish });
+        const count = (st) => r.agents.filter(a => a.status === st).length;
+        showToast(`Agents: ${count('created')} created, ${count('updated')} updated, ${count('skipped')} skipped`, 'success');
+        loadAgents();
+    } catch (error) {
+        showToast('Push failed: ' + error.message, 'error');
+    }
+}
+
+// ---- workflows ----
+async function pullWorkflows() {
     try {
         showToast('Pulling workflows from n8n...', 'info');
         const response = await fetch(`${API_URL}/sync/pull`, { method: 'POST' });
@@ -179,7 +330,7 @@ async function triggerPull() {
     }
 }
 
-async function triggerPush() {
+async function pushWorkflows() {
     try {
         showToast('Pushing workflows to n8n...', 'info');
         const response = await fetch(`${API_URL}/sync/push`, { method: 'POST' });
@@ -263,3 +414,5 @@ function showToast(message, type = 'info') {
 connectWebSocket();
 loadStats();
 loadWorkflows();
+loadAgents();
+if (location.hash === '#agents') setTab('agents');
