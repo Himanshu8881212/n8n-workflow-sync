@@ -43,6 +43,7 @@ Add `--json` to any command for machine-readable output (logs go to stderr).
 | `delete "<name>" ... --yes` | Delete in n8n + local file (backup kept). Without `--yes` = preview |
 | `prune --yes` | Delete n8n flows whose local file was deleted (only flows this folder synced) |
 | `data-tables pull\|push`, `variables pull\|push` | `flows/data-tables.n8n.json` (schemas only), `flows/variables.n8n.json` (licensed n8n) |
+| `agents [list]`, `agents pull ["name"\|id] [--all]`, `agents push [--publish] [--dry-run]` | Agents ↔ `agents/` (unpacked n8n package). Edit `agents/agents/<name>/agent.json`; a new agent = new folder with `name` + `config`, no id. Push needs n8n 3.0.1+ (else exit 2: tell the user to update n8n) and a key with agent:import (403 = make a new key) |
 
 ## Rules
 

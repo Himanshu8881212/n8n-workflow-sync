@@ -25,6 +25,7 @@ import { N8nClient } from './n8n-client.js';
 import { FileManager } from './file-manager.js';
 import { validateWorkflow } from './validator.js';
 import { pushCredentials, testCredentials } from './credentials.js';
+import { discoverAgents, pullAgents, pushAgents } from './agents.js';
 
 logger.level = process.env.LOG_LEVEL || 'warn';
 
@@ -223,5 +224,30 @@ for (const [name, file, pull, push, what] of [
     },
   );
 }
+
+tool(
+  'sync_agents',
+  'n8n agents as files (an unpacked n8n package in AGENTS_DIR, default ./agents; edit agents/<name>/agent.json). ' +
+    'list = agents in n8n; pull = refresh tracked agents (+ select names/ids, or all); push = create/update in n8n. ' +
+    'A new agent is a new agents/<name>/agent.json with name + config (no id needed; config.credential may be a credential name). ' +
+    'push needs n8n 3.0.1+ and an API key with agent:import (keys made before 3.0 lack it); older n8n returns a clear "cannot import agents yet" error. Never deletes agents in n8n.',
+  {
+    action: z.enum(['list', 'pull', 'push']),
+    directory: z.string().optional().describe('Agents folder. Default: AGENTS_DIR or ./agents'),
+    select: z.array(z.string()).optional().describe('pull: agent names or ids to add'),
+    all: z.boolean().optional().describe('pull: every agent n8n can see'),
+    publish: z.boolean().optional().describe('push: publish the agents'),
+    project_id: z.string().optional().describe('push: target project (default: personal)'),
+    dry_run: z.boolean().optional(),
+  },
+  async ({ action, directory: d, select, all, publish, project_id, dry_run }) => {
+    validateConfig();
+    const client = new N8nClient();
+    const dir = resolve(d || config.paths.agentsDir);
+    if (action === 'list') return discoverAgents(client);
+    if (action === 'pull') return pullAgents(client, dir, { select: select || [], all });
+    return pushAgents(client, dir, { dryRun: dry_run, projectId: project_id, publishingPolicy: publish ? 'publish-all' : undefined });
+  },
+);
 
 await server.connect(new StdioServerTransport());

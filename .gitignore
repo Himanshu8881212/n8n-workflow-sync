@@ -15,6 +15,7 @@ yarn-error.log*
 
 # Local workflow files / test output
 /workflows/
+/agents/
 /test-workflows/
 coverage/
 

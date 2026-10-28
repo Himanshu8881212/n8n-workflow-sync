@@ -6,6 +6,8 @@ import { N8nClient } from './n8n-client.js';
 import { SyncEngine } from './sync-engine.js';
 import { config } from './config.js';
 import { defaultLogger as logger } from './logger-enhanced.js';
+import { resolve } from 'path';
+import { discoverAgents, listLocalAgents, pullAgents, pushAgents } from './agents.js';
 
 /**
  * GUI Server - Web-based dashboard for n8n workflow sync
@@ -25,6 +27,8 @@ export class GUIServer {
       config.n8n.apiUrl,
       config.n8n.apiKey
     );
+
+    this.agentsDir = resolve(config.paths.agentsDir);
 
     this.syncEngine = new SyncEngine({
       workflowsDir: config.paths.workflowsDir,
@@ -77,6 +81,7 @@ export class GUIServer {
         const workflows = await this.client.listWorkflows();
         this.stats.totalWorkflows = workflows.length;
         res.json({
+          n8n: { apiUrl: config.n8n.apiUrl, editorUrl: config.n8n.editorUrl, env: config.env },
           totalWorkflows: this.stats.totalWorkflows,
           lastSync: this.stats.lastSync,
           status: this.stats.syncStatus, // Map syncStatus to status for frontend
@@ -207,6 +212,45 @@ export class GUIServer {
         this.stats.errors.push({ timestamp: new Date(), error: error.message });
         this.broadcast({ type: 'sync-error', operation: 'full', error: error.message });
         res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Agents: n8n's agents merged with the local agents folder
+    this.app.get('/api/agents', async (req, res) => {
+      try {
+        const [remote, local] = await Promise.all([discoverAgents(this.client), listLocalAgents(this.agentsDir)]);
+        const byId = new Map(remote.map((a) => [a.id, { ...a, inN8n: true, local: false }]));
+        const agents = [...byId.values()];
+        for (const l of local) {
+          const hit = l.id && byId.get(l.id);
+          if (hit) hit.local = true;
+          else agents.push({ id: l.id, name: l.name, projectId: null, inN8n: false, local: true });
+        }
+        res.json({ dir: this.agentsDir, agents });
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Pull agents: body { select?: [ids|names], all?: bool } - default: refresh the folder's agents
+    this.app.post('/api/agents/pull', async (req, res) => {
+      try {
+        const result = await pullAgents(this.client, this.agentsDir, { select: req.body?.select || [], all: req.body?.all === true });
+        this.broadcast({ type: 'agents-changed' });
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ error: error.message });
+      }
+    });
+
+    // Push the agents folder: body { publish?: bool }
+    this.app.post('/api/agents/push', async (req, res) => {
+      try {
+        const result = await pushAgents(this.client, this.agentsDir, { publishingPolicy: req.body?.publish === true ? 'publish-all' : undefined });
+        this.broadcast({ type: 'agents-changed' });
+        res.json(result);
+      } catch (error) {
+        res.status(error.unsupported ? 400 : 500).json({ error: error.message });
       }
     });
 

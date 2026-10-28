@@ -250,6 +250,26 @@ describe('SyncEngine', () => {
     assert.strictEqual(n8n.workflows.size, 1, 'dev untouched');
   });
 
+  it('watcher sync never pushes backups, state or config files', async () => {
+    await put('m.json', manualFlow);
+    await engine.pushToN8n();
+    n8n.uiEdit((await read('m.json')).id, (wf) => (wf.nodes[0].name = 'Newer'));
+    await put('m.json', { ...(await read('m.json')), name: 'Local' });
+    const forced = await engine.pushToN8n({ force: true }); // writes a backup of the remote
+    const before = n8n.bodies.length;
+    for (const f of [forced.results[0].backup, join(dir, '.n8n-sync', 'state.json'), join(dir, 'credentials.n8n.json')]) {
+      assert.strictEqual((await engine.syncFile(f)).action, 'skipped', f);
+    }
+    assert.strictEqual(n8n.bodies.length, before, 'nothing pushed');
+
+    const { EnhancedFileWatcher } = await import('../src/watcher-enhanced.js');
+    const w = new EnhancedFileWatcher(dir, engine);
+    assert.strictEqual(w.isIgnored(forced.results[0].backup), true);
+    assert.strictEqual(w.isIgnored(join(dir, '.n8n-sync', 'state.json')), true);
+    assert.strictEqual(w.isIgnored(join(dir, 'sub', 'flow.json')), false);
+    assert.strictEqual(w.isIgnored(join(dir, 'flow.code.js')), false);
+  });
+
   describe('pull', () => {
     it('writes into tag folders, handles name collisions, skips unchanged, no path escape', async () => {
       await n8n.createWorkflow({ ...manualFlow, name: 'Same Name' });

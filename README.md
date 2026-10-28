@@ -14,7 +14,7 @@ Below, `n8n-sync` means that `npx` command (or `node src/cli.js` in a clone).
 **Install:** `npx github:…` needs **Node 24** (npm 10 on Node 20/22 has a bug installing from GitHub). On Node 20/22 use
 `npm install -g github:Himanshu8881212/n8n-workflow-sync` once, then run `n8n-sync …`. CI tests both methods on Node 20/22/24.
 
-**Tested on** Linux, macOS and Windows with Node 20/22/24, and end-to-end against real n8n 2.45.4 and 1.123.88.
+**Tested on** Linux, macOS and Windows with Node 20/22/24, and end-to-end against real n8n 3.0.1 (Docker), 2.45.4 and 1.123.88.
 
 ## Setup
 
@@ -46,9 +46,12 @@ Config is per project: `./.env.<env>` → `./.env` → the tool's own `.env`. Re
 | `prune --yes` | Delete n8n flows whose file you deleted (only flows this folder synced) |
 | `data-tables pull\|push` | Data table schemas ↔ `flows/data-tables.n8n.json`. Rows are never synced |
 | `variables pull\|push` | Variables ↔ `flows/variables.n8n.json`. Needs a licensed n8n |
+| `agents [list]`, `agents pull ["name"\|id] [--all]`, `agents push [--publish] [--dry-run]` | Agents ↔ `agents/` (see below). Push needs a newer n8n |
 | `init`, `gui`, `watch`, `mcp`, `completion zsh\|bash\|fish`, `version` | |
 
 Every command takes `--json`. Logs go to stderr.
+
+**Dashboard** (`n8n-sync gui` → http://127.0.0.1:3001): a *Workflows* and an *Agents* tab with pull/push, activate/deactivate/delete for workflows, and per-agent status (synced / only in n8n / only local). It talks to the n8n in `N8N_API_URL`, so a dashboard on your laptop can drive an n8n on a server; `N8N_EDITOR_URL` sets the "open n8n" link (default: the API URL without `/api/v1`). Open `/#agents` to land on the agents tab.
 
 ## How sync stays safe
 
@@ -121,6 +124,26 @@ It needs the repo secrets `N8N_API_URL` (reachable from GitHub) and `N8N_API_KEY
   "env": { "N8N_API_URL": "http://localhost:5678/api/v1", "N8N_API_KEY": "…", "N8N_SYNC_DIR": "/abs/path/to/flows" } } } }
 ```
 
+## Agents
+
+n8n agents sync through n8n packages (`/n8n-packages/export` and `/import`), with the same API key. The `agents/` folder (`AGENTS_DIR`) is the package unpacked, the way n8n exports it:
+
+```
+agents/
+  manifest.json                            what the package contains (kept up to date on push)
+  agents/<name>-<id>/agent.json            the definition: model, instructions, tools, memory… edit this
+  agents/<name>-<id>/agent-metadata.json   version ids (written by n8n)
+  credentials/<name>-<id>/credential.json  credential reference: id, name, type (never secrets)
+```
+
+- `agents pull --all` (or `pull "name"`) adds agents; a plain `agents pull` refreshes the ones in the folder. Agents that n8n doesn't have (yet) keep their local files.
+- **New agent:** create `agents/agents/<name>/agent.json` with `name` and `config` (copy an existing one, drop `id`). `config.credential` can be the credential's name. `push` assigns the id, adds it to `manifest.json` and lists its credential.
+- `agents push` keeps the ids (`idPolicy=source`), so pushing again updates the agent (`--conflict-policy new-version`) instead of creating a copy. `--publish` publishes. It never deletes agents in n8n.
+- **Push needs n8n 3.0.1 or newer** (agent package import, n8n PR #40892). Older n8n says so (exit code 2). Pull works on 2.45+.
+- The API key needs the `agent:import` scopes. Keys created before 3.0 don't have them (push fails with 403): create a new key after upgrading.
+- Agents in a project without any workflow aren't listed by `agents list` / `--all` (the public API has no agent list). Pull them by id from the editor URL.
+- Workflows an agent uses as tools aren't copied into the package (`reference-only`); keep them in your flows folder.
+
 ## Limits
 
 - n8n's public API can't start Manual or Schedule triggers, so `run` only works for webhook flows. For the others, use `executions` after they've run.
@@ -131,5 +154,5 @@ It needs the repo secrets `N8N_API_URL` (reachable from GitHub) and `N8N_API_KEY
 ## Development
 
 ```bash
-npm install && npm test     # 50 tests; CI runs them on Node 20/22/24
+npm install && npm test     # 55 tests; CI runs them on Node 20/22/24
 ```
