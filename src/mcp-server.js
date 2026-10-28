@@ -230,7 +230,7 @@ tool(
   'n8n agents as files (an unpacked n8n package in AGENTS_DIR, default ./agents; edit agents/<name>/agent.json). ' +
     'list = agents in n8n; pull = refresh tracked agents (+ select names/ids, or all); push = create/update in n8n. ' +
     'A new agent is a new agents/<name>/agent.json with name + config (no id needed; config.credential may be a credential name). ' +
-    'push needs an n8n release with agent package import (after 3.0.0 / 2.46.0); older n8n returns a clear "cannot import agents yet" error. Never deletes agents in n8n.',
+    'push needs n8n 3.0.1+ and an API key with agent:import (keys made before 3.0 lack it); older n8n returns a clear "cannot import agents yet" error. Never deletes agents in n8n.',
   {
     action: z.enum(['list', 'pull', 'push']),
     directory: z.string().optional().describe('Agents folder. Default: AGENTS_DIR or ./agents'),
