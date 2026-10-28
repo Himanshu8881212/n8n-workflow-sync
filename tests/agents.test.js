@@ -69,7 +69,7 @@ class FakeN8n {
     const f = join(d, '..', 'pkg.n8np');
     await writeFile(f, buffer);
     const { stdout } = await promisify(execFile)('tar', ['-tzf', f]);
-    this.firstEntry = stdout.split('\n')[0].replace(/^\.\//, '');
+    this.firstEntry = stdout.split(/\r?\n/)[0].replace(/^\.\//, '');
     const manifest = await json(join(d, 'manifest.json'));
     this.calls.push(['import', fields, manifest, await readdir(d)]);
     return {
