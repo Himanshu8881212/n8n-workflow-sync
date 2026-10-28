@@ -60,7 +60,9 @@ export async function unpack(buffer, dir) {
 
 /** Pack a folder (its non-hidden entries) into a .n8np buffer */
 export async function pack(dir) {
-  const entries = (await readdir(dir)).filter((e) => !e.startsWith('.'));
+  // n8n rejects a package unless manifest.json is the first entry
+  const entries = (await readdir(dir)).filter((e) => !e.startsWith('.') && e !== 'manifest.json');
+  if (existsSync(join(dir, 'manifest.json'))) entries.unshift('manifest.json');
   return withTemp(async (tmp) => {
     const file = join(tmp, 'p.n8np');
     // COPYFILE_DISABLE: stop macOS tar from adding ._* metadata files
@@ -317,8 +319,8 @@ export async function pushAgents(client, dir, { dryRun = false, projectId, confl
   } catch (error) {
     if (UNSUPPORTED_IMPORT.test(error.message)) {
       const e = new Error(
-        'This n8n version cannot import agents yet. Agent import through the public API is merged in n8n ' +
-          '(PR #40892) and ships in the first release after 3.0.0 / 2.46.0 - update n8n, then push again. ' +
+        'This n8n version cannot import agents yet. Agent import through the public API needs n8n 3.0.1 or newer ' +
+          '- update n8n, then push again. ' +
           `Your agent files are ready (${basename(dir)}/).`,
       );
       e.unsupported = true;

@@ -4,6 +4,8 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { pack, unpack, pullAgents, pushAgents } from '../src/agents.js';
 
 const tmp = () => mkdtemp(join(tmpdir(), 'agents-test-'));
@@ -64,6 +66,10 @@ class FakeN8n {
     if (!this.importSupported) throw Object.assign(new Error("n8n API error: 400 - request/body must have required property 'workflowConflictPolicy'"), { status: 400 });
     const d = await tmp();
     await unpack(buffer, d);
+    const f = join(d, '..', 'pkg.n8np');
+    await writeFile(f, buffer);
+    const { stdout } = await promisify(execFile)('tar', ['-tzf', f]);
+    this.firstEntry = stdout.split('\n')[0].replace(/^\.\//, '');
     const manifest = await json(join(d, 'manifest.json'));
     this.calls.push(['import', fields, manifest, await readdir(d)]);
     return {
@@ -112,6 +118,7 @@ describe('agents', () => {
     assert.ok(manifest.agents.some((a) => a.id === written.id && a.target === 'agents/researcher'));
     assert.ok(manifest.requirements.credentials[0].usedBy.some((u) => u.id === written.id));
     assert.ok(!entries.some((e) => e.startsWith('._')), 'no macOS metadata files');
+    assert.strictEqual(n8n.firstEntry, 'manifest.json', 'n8n requires manifest.json first');
 
     // after n8n has it, a pull refreshes it like any other agent
     n8n.agents.push(written);

@@ -137,7 +137,8 @@ agents/
 - `agents pull --all` (or `pull "name"`) adds agents; a plain `agents pull` refreshes the ones in the folder. Agents that n8n doesn't have (yet) keep their local files.
 - **New agent:** create `agents/agents/<name>/agent.json` with `name` and `config` (copy an existing one, drop `id`). `config.credential` can be the credential's name. `push` assigns the id, adds it to `manifest.json` and lists its credential.
 - `agents push` keeps the ids (`idPolicy=source`), so pushing again updates the agent (`--conflict-policy new-version`) instead of creating a copy. `--publish` publishes. It never deletes agents in n8n.
-- **Push needs an n8n release with agent package import** (n8n PR #40892, first release after 3.0.0 / 2.46.0). Older n8n says so (exit code 2). Pull works on 2.45+.
+- **Push needs n8n 3.0.1 or newer** (agent package import, n8n PR #40892). Older n8n says so (exit code 2). Pull works on 2.45+.
+- The API key needs the `agent:import` scopes. Keys created before 3.0 don't have them (push fails with 403): create a new key after upgrading.
 - Agents in a project without any workflow aren't listed by `agents list` / `--all` (the public API has no agent list). Pull them by id from the editor URL.
 - Workflows an agent uses as tools aren't copied into the package (`reference-only`); keep them in your flows folder.
 
